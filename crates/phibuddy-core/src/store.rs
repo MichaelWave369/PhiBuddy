@@ -530,10 +530,8 @@ mod tests {
 
     #[test]
     fn manual_memory_survives_restart_and_forget_remains_deleted() {
-        let tmp = std::env::temp_dir().join(format!(
-            "phibuddy-memory-reopen-{}.sqlite3",
-            Uuid::new_v4()
-        ));
+        let tmp =
+            std::env::temp_dir().join(format!("phibuddy-memory-reopen-{}.sqlite3", Uuid::new_v4()));
         let id = {
             let store = Store::open(&tmp).unwrap();
             store
