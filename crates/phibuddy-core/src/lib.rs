@@ -5,6 +5,7 @@ pub mod agents;
 pub mod engine;
 pub mod evaluation;
 pub mod evidence_passages;
+pub mod claim_support;
 pub mod memory_discovery;
 pub mod progress;
 pub mod store;
