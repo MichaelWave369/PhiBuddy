@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 
 type Session = { id: string; mode: string; agent: string; created_at: string };
 type Message = { role: string; actor: string | null; content: string };
@@ -11,6 +11,11 @@ type Event = {
 type Agent = "buddy" | "homie" | "dude";
 type Mode = "solo" | "council" | "workshop";
 type Depth = "quick" | "debate";
+type TurnProgress =
+  | { event: "turn_started"; turn_id: string }
+  | { event: "stage_started"; agent: string; phase: string }
+  | { event: "delta"; agent: string; phase: string; text: string }
+  | { event: "stage_finished"; agent: string; phase: string };
 
 const agents: Agent[] = ["buddy", "homie", "dude"];
 const modes: Mode[] = ["solo", "council", "workshop"];
@@ -30,6 +35,9 @@ export default function App() {
   const [depth, setDepth] = useState<Depth>("quick");
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
+  const [cancelRequested, setCancelRequested] = useState(false);
+  const [currentStage, setCurrentStage] = useState("");
+  const [liveOutput, setLiveOutput] = useState("");
   const [error, setError] = useState("");
   const [status, setStatus] = useState("Checking Ollama…");
   const [inspector, setInspector] = useState<"events" | "contributions">("contributions");
@@ -45,7 +53,7 @@ export default function App() {
   const turnEvents = events.filter((e) => e.turn_id === inspectedTurn);
   const contributions = turnEvents.filter((e) =>
     ["agent_draft", "agent_critique", "workshop_plan", "workshop_ideas",
-     "workshop_build", "solo_answer", "synthesis"].includes(e.kind)
+     "workshop_build", "solo_answer", "synthesis", "stage_partial"].includes(e.kind)
   );
 
   async function loadSession(id: string) {
@@ -124,18 +132,48 @@ export default function App() {
     const input = prompt.trim();
     if (!activeId || !input || busy) return;
     setBusy(true);
+    setCancelRequested(false);
+    setCurrentStage("Preparing model…");
+    setLiveOutput("");
     setError("");
+    const onProgress = new Channel<TurnProgress>();
+    onProgress.onmessage = (update) => {
+      if (update.event === "stage_started") {
+        setCurrentStage(update.agent.toUpperCase() + " · " + update.phase.replaceAll("_", " "));
+        setLiveOutput("");
+      } else if (update.event === "delta") {
+        setLiveOutput((current) => current + update.text);
+      } else if (update.event === "stage_finished") {
+        setCurrentStage(update.agent.toUpperCase() + " finished " + update.phase.replaceAll("_", " "));
+      }
+    };
     try {
-      await invoke("send_prompt", { sessionId: activeId, input, depth });
+      await invoke("send_prompt", { sessionId: activeId, input, depth, onProgress });
       setPrompt("");
       await loadSession(activeId);
       await reloadSessions();
       setInspector("contributions");
+      setLiveOutput("");
     } catch (e) {
       setError(errorText(e));
-      // Even a failed Council can have durable partial events.
+      // A stopped model may have written durable partial events; show them.
       try { await loadSession(activeId); } catch { /* Preserve original error. */ }
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+      setCancelRequested(false);
+      setCurrentStage("");
+    }
+  }
+
+  async function cancel() {
+    if (!busy || cancelRequested) return;
+    try {
+      const accepted = await invoke<boolean>("cancel_turn");
+      if (accepted) {
+        setCancelRequested(true);
+        setCurrentStage("Cancellation requested. Stopping at the next Ollama stream chunk…");
+      }
+    } catch (e) { setError(errorText(e)); }
   }
 
   return (
@@ -189,7 +227,13 @@ export default function App() {
               <div className="message-body">{m.content}</div>
             </article>
           ))}
-          {busy && <p className="busy" role="status">Crew working… Ollama requests are sequential. This preview shows complete turns, not token streaming.</p>}
+          {busy && (
+            <section className="live-reply" aria-label="Current AI generation">
+              <div className="message-label" role="status">{currentStage || "Crew working…"}</div>
+              <div className="message-body" aria-live="off">{liveOutput || "Waiting for the first token…"}</div>
+              <p className="hint">Live Ollama output · One agent at a time · Not saved as a completed answer until the turn succeeds</p>
+            </section>
+          )}
         </section>
         <section className="composer">
           {active?.mode === "council" && <label className="depth">Council depth
@@ -205,8 +249,10 @@ export default function App() {
             onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void submit(); } }}
             placeholder={active ? "Ask the crew anything… (Ctrl+Enter to send)" : "Create a session to begin"} />
           <div className="composer-actions"><small>Human approval required for future execution tools.</small>
+            {busy && <button className="cancel" disabled={cancelRequested}
+              onClick={() => void cancel()}>{cancelRequested ? "Stopping…" : "Cancel run"}</button>}
             <button className="primary" disabled={!active || !prompt.trim() || busy}
-              onClick={() => void submit()}>{busy ? "Working…" : "Send to crew"}</button></div>
+              onClick={() => void submit()}>{busy ? "Generating…" : "Send to crew"}</button></div>
         </section>
       </main>
 
