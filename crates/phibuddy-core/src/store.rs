@@ -308,9 +308,10 @@ impl Store {
             "SELECT id, content, source_kind, source_ref, created_at
              FROM memory_notes ORDER BY created_at DESC, rowid DESC LIMIT ?1",
         )?;
-        Ok(stmt
+        let rows = stmt
             .query_map([limit], read_memory_row)?
-            .collect::<std::result::Result<Vec<_>, _>>()?)
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
     /// A literal substring lookup (case-insensitive for SQLite's built-in ASCII rules).
@@ -326,9 +327,10 @@ impl Store {
              FROM memory_notes WHERE instr(lower(content), lower(?1)) > 0
              ORDER BY created_at DESC, rowid DESC LIMIT ?2",
         )?;
-        Ok(stmt
+        let rows = stmt
             .query_map(params![query, limit], read_memory_row)?
-            .collect::<std::result::Result<Vec<_>, _>>()?)
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
     /// Deletes a record from the active database. Backups and forensic remnants
