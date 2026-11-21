@@ -37,10 +37,9 @@ pub struct ClaimReview {
 }
 
 const STOP: &[&str] = &[
-    "a", "an", "and", "are", "as", "at", "be", "by", "can", "do", "for",
-    "from", "has", "have", "in", "is", "it", "of", "on", "or", "our", "that",
-    "the", "their", "there", "these", "this", "to", "was", "were", "which", "with",
-    "you", "your",
+    "a", "an", "and", "are", "as", "at", "be", "by", "can", "do", "for", "from", "has", "have",
+    "in", "is", "it", "of", "on", "or", "our", "that", "the", "their", "there", "these", "this",
+    "to", "was", "were", "which", "with", "you", "your",
 ];
 
 fn words(input: &str) -> BTreeSet<String> {
@@ -72,7 +71,10 @@ pub fn review_claim(
         return Err("unknown session".into());
     }
     let events = store.events(session_id)?;
-    if !events.iter().any(|e| e.turn_id == turn_id && e.kind == EventKind::TurnStarted) {
+    if !events
+        .iter()
+        .any(|e| e.turn_id == turn_id && e.kind == EventKind::TurnStarted)
+    {
         return Err("turn does not exist in this session".into());
     }
 
@@ -145,22 +147,38 @@ mod tests {
         let store = Store::in_memory().unwrap();
         let session = store.create_session(Mode::Solo, Agent::Buddy).unwrap();
         let turn = Store::new_turn_id();
-        store.append_event(&session.id, &turn, EventKind::TurnStarted, None, "Question").unwrap();
+        store
+            .append_event(&session.id, &turn, EventKind::TurnStarted, None, "Question")
+            .unwrap();
         let content = "The Rust service stores session events in SQLite.\nA network model can produce incorrect answers.\nThis is not truth.";
         let hash = format!("{:x}", Sha256::digest(content.as_bytes()));
-        let source = store.record_external_evidence(
-            "https://raw.githubusercontent.com/example/example/main/doc.md",
-            "raw.githubusercontent.com",
-            "text/plain",
-            &hash,
-            content,
-        ).unwrap();
-        let selection = PassageSelection { evidence_id: source.id.clone(), start_line: 1, end_line: 2 };
-        let anchor = PassageAnchor { selection, sha256: hash };
-        store.append_event(
-            &session.id, &turn, EventKind::SourcePassageAttached,
-            None, &serde_json::to_string(&anchor).unwrap(),
-        ).unwrap();
+        let source = store
+            .record_external_evidence(
+                "https://raw.githubusercontent.com/example/example/main/doc.md",
+                "raw.githubusercontent.com",
+                "text/plain",
+                &hash,
+                content,
+            )
+            .unwrap();
+        let selection = PassageSelection {
+            evidence_id: source.id.clone(),
+            start_line: 1,
+            end_line: 2,
+        };
+        let anchor = PassageAnchor {
+            selection,
+            sha256: hash,
+        };
+        store
+            .append_event(
+                &session.id,
+                &turn,
+                EventKind::SourcePassageAttached,
+                None,
+                &serde_json::to_string(&anchor).unwrap(),
+            )
+            .unwrap();
         (store, session.id, turn, source.id)
     }
 
@@ -168,22 +186,39 @@ mod tests {
     fn exact_quote_is_detected_but_not_labelled_verified() {
         let (store, session, turn, _) = fixture();
         let review = review_claim(
-            &store, &session, &turn,
+            &store,
+            &session,
+            &turn,
             "The Rust service stores session events in SQLite.",
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(review.findings.len(), 1);
         assert_eq!(review.findings[0].text_match, TextMatchKind::ExactTextFound);
         assert_eq!(review.status, "textual_comparison_only_not_fact_checked");
-        assert!(review.findings[0].original_quote.as_ref().unwrap().contains("SQLite"));
+        assert!(review.findings[0]
+            .original_quote
+            .as_ref()
+            .unwrap()
+            .contains("SQLite"));
     }
 
     #[test]
     fn word_overlap_is_only_a_hint_not_an_entailment_verdict() {
         let (store, session, turn, _) = fixture();
-        let review = review_claim(&store, &session, &turn, "SQLite events will never be lost").unwrap();
-        assert_eq!(review.findings[0].text_match, TextMatchKind::TextOverlapOnly);
+        let review =
+            review_claim(&store, &session, &turn, "SQLite events will never be lost").unwrap();
+        assert_eq!(
+            review.findings[0].text_match,
+            TextMatchKind::TextOverlapOnly
+        );
         assert_eq!(review.findings[0].shared_terms, vec!["events", "sqlite"]);
-        let unrelated = review_claim(&store, &session, &turn, "Bananas are growing outside the station").unwrap();
+        let unrelated = review_claim(
+            &store,
+            &session,
+            &turn,
+            "Bananas are growing outside the station",
+        )
+        .unwrap();
         assert_eq!(unrelated.findings[0].text_match, TextMatchKind::NoTextMatch);
     }
 
@@ -192,9 +227,16 @@ mod tests {
         let (store, session, turn, id) = fixture();
         assert!(store.delete_external_evidence(&id).unwrap());
         let result = review_claim(
-            &store, &session, &turn, "The Rust service stores session events in SQLite."
-        ).unwrap();
-        assert_eq!(result.findings[0].text_match, TextMatchKind::SourceUnavailable);
+            &store,
+            &session,
+            &turn,
+            "The Rust service stores session events in SQLite.",
+        )
+        .unwrap();
+        assert_eq!(
+            result.findings[0].text_match,
+            TextMatchKind::SourceUnavailable
+        );
         assert!(result.findings[0].original_quote.is_none());
         assert!(result.findings[0].source_url.is_none());
     }
@@ -202,12 +244,32 @@ mod tests {
     #[test]
     fn missing_attachments_and_invalid_sessions_cannot_borrow_other_evidence() {
         let (store, session, turn, _) = fixture();
-        assert!(review_claim(&store, "fake-session", &turn, "The Rust service stores session events in SQLite.").is_err());
-        assert!(review_claim(&store, &session, "fake-turn", "The Rust service stores session events in SQLite.").is_err());
+        assert!(review_claim(
+            &store,
+            "fake-session",
+            &turn,
+            "The Rust service stores session events in SQLite."
+        )
+        .is_err());
+        assert!(review_claim(
+            &store,
+            &session,
+            "fake-turn",
+            "The Rust service stores session events in SQLite."
+        )
+        .is_err());
         assert!(review_claim(&store, &session, &turn, "short").is_err());
         let next = Store::new_turn_id();
-        store.append_event(&session, &next, EventKind::TurnStarted, None, "Another").unwrap();
-        let unrelated = review_claim(&store, &session, &next, "The Rust service stores session events in SQLite.").unwrap();
+        store
+            .append_event(&session, &next, EventKind::TurnStarted, None, "Another")
+            .unwrap();
+        let unrelated = review_claim(
+            &store,
+            &session,
+            &next,
+            "The Rust service stores session events in SQLite.",
+        )
+        .unwrap();
         assert!(unrelated.findings.is_empty());
         assert_eq!(store.events(&session).unwrap().len(), 3);
     }
