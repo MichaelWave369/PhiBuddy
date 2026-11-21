@@ -36,6 +36,13 @@ pub struct MemoryRecord {
     pub created_at: String,
 }
 
+/// Read-only candidate with SQLite-calculated age, not factual validity.
+#[derive(Clone, Debug)]
+pub struct MemoryCandidate {
+    pub note: MemoryRecord,
+    pub age_days: Option<i64>,
+}
+
 fn read_memory_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryRecord> {
     Ok(MemoryRecord {
         id: row.get(0)?,
@@ -333,6 +340,22 @@ impl Store {
         let rows = stmt
             .query_map(params![query, limit], read_memory_row)?
             .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Read a bounded local candidate pool for manual relevance suggestions.
+    /// Does not attach notes to prompts or create a session.
+    pub fn suggestion_candidates(&self) -> Result<Vec<MemoryCandidate>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, content, source_kind, source_ref, created_at,
+                    CAST(julianday('now') - julianday(created_at) AS INTEGER)
+             FROM memory_notes ORDER BY created_at DESC, rowid DESC LIMIT 1000",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let note = read_memory_row(row)?;
+            let age_days = row.get::<_, Option<i64>>(5)?.map(|age| age.max(0));
+            Ok(MemoryCandidate { note, age_days })
+        })?.collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(rows)
     }
 
