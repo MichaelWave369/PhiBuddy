@@ -26,4 +26,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/phibuddy-desktop/src-tauri
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install --no-audit --no-fund
+        working-directory: apps/phibuddy-desktop
+      - run: npm run build
+        working-directory: apps/phibuddy-desktop
       - run: cargo check --manifest-path apps/phibuddy-desktop/src-tauri/Cargo.toml
