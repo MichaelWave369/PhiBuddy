@@ -759,7 +759,7 @@ mod tests {
                 &session,
                 "First question",
                 CouncilDepth::Quick,
-                &[saved.id.clone()],
+                std::slice::from_ref(&saved.id),
                 &cancel,
                 &mut |_| {},
             )
