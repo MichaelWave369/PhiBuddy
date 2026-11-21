@@ -806,22 +806,47 @@ mod tests {
     #[test]
     fn memory_budget_checks_serialized_payload_and_note_count() {
         let mut engine = engine();
-        let session = engine.store().create_session(Mode::Solo, Agent::Buddy).unwrap();
+        let session = engine
+            .store()
+            .create_session(Mode::Solo, Agent::Buddy)
+            .unwrap();
         let cancel = CancelFlag::new(false);
         // JSON escaping roughly doubles backslashes; raw text alone is under
         // the cap, but the message sent to Ollama must still be rejected.
-        let escaped = engine.store().remember_manual(&"\\".repeat(4_000), None).unwrap();
-        assert!(engine.run_observed_with_memories(
-            &session, "Question", CouncilDepth::Quick,
-            std::slice::from_ref(&escaped.id), &cancel, &mut |_| {},
-        ).is_err());
+        let escaped = engine
+            .store()
+            .remember_manual(&"\\".repeat(4_000), None)
+            .unwrap();
+        assert!(engine
+            .run_observed_with_memories(
+                &session,
+                "Question",
+                CouncilDepth::Quick,
+                std::slice::from_ref(&escaped.id),
+                &cancel,
+                &mut |_| {},
+            )
+            .is_err());
         let mut ids = Vec::new();
         for index in 0..6 {
-            ids.push(engine.store().remember_manual(&format!("note {index}"), None).unwrap().id);
+            ids.push(
+                engine
+                    .store()
+                    .remember_manual(&format!("note {index}"), None)
+                    .unwrap()
+                    .id,
+            );
         }
-        assert!(engine.run_observed_with_memories(
-            &session, "Question", CouncilDepth::Quick, &ids, &cancel, &mut |_| {},
-        ).is_err());
+        assert!(engine
+            .run_observed_with_memories(
+                &session,
+                "Question",
+                CouncilDepth::Quick,
+                &ids,
+                &cancel,
+                &mut |_| {},
+            )
+            .is_err());
         assert!(engine.store().events(&session.id).unwrap().is_empty());
         assert!(engine.provider.calls.lock().unwrap().is_empty());
     }
