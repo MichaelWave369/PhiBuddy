@@ -339,13 +339,8 @@ impl<P: ModelProvider> Engine<P> {
         self.store
             .append_event(&session.id, &turn_id, EventKind::TurnStarted, None, input)?;
         for id in memory_ids {
-            self.store.append_event(
-                &session.id,
-                &turn_id,
-                EventKind::MemoryAttached,
-                None,
-                id,
-            )?;
+            self.store
+                .append_event(&session.id, &turn_id, EventKind::MemoryAttached, None, id)?;
         }
         on_progress(TurnProgress::TurnStarted {
             turn_id: turn_id.clone(),
@@ -680,16 +675,28 @@ mod tests {
     #[test]
     fn explicit_note_context_is_visible_to_agents_and_attributable() {
         let mut engine = engine();
-        let session = engine.store().create_session(Mode::Council, Agent::Buddy).unwrap();
-        let saved = engine.store().remember_manual(
-            "Prefer rigorous test evidence over confident guesses.",
-            Some("user's architecture notes"),
-        ).unwrap();
+        let session = engine
+            .store()
+            .create_session(Mode::Council, Agent::Buddy)
+            .unwrap();
+        let saved = engine
+            .store()
+            .remember_manual(
+                "Prefer rigorous test evidence over confident guesses.",
+                Some("user's architecture notes"),
+            )
+            .unwrap();
         let cancel = CancelFlag::new(false);
-        let turn = engine.run_observed_with_memories(
-            &session, "Design memory.", CouncilDepth::Quick,
-            std::slice::from_ref(&saved.id), &cancel, &mut |_| {},
-        ).unwrap();
+        let turn = engine
+            .run_observed_with_memories(
+                &session,
+                "Design memory.",
+                CouncilDepth::Quick,
+                std::slice::from_ref(&saved.id),
+                &cancel,
+                &mut |_| {},
+            )
+            .unwrap();
         let calls = engine.provider.calls.lock().unwrap();
         assert_eq!(calls.len(), 4);
         // Independent drafts receive identical selected notes, not each other's answers.
@@ -716,37 +723,78 @@ mod tests {
     #[test]
     fn memory_is_opt_in_per_turn_and_rejects_missing_or_duplicate_notes() {
         let mut engine = engine();
-        let session = engine.store().create_session(Mode::Solo, Agent::Buddy).unwrap();
-        let saved = engine.store().remember_manual("Example note", None).unwrap();
+        let session = engine
+            .store()
+            .create_session(Mode::Solo, Agent::Buddy)
+            .unwrap();
+        let saved = engine
+            .store()
+            .remember_manual("Example note", None)
+            .unwrap();
         let cancel = CancelFlag::new(false);
         let invalid = vec![saved.id.clone(), saved.id.clone()];
-        assert!(engine.run_observed_with_memories(
-            &session, "Question", CouncilDepth::Quick, &invalid, &cancel, &mut |_| {},
-        ).is_err());
-        assert!(engine.run_observed_with_memories(
-            &session, "Question", CouncilDepth::Quick, &["missing".into()], &cancel, &mut |_| {},
-        ).is_err());
+        assert!(engine
+            .run_observed_with_memories(
+                &session,
+                "Question",
+                CouncilDepth::Quick,
+                &invalid,
+                &cancel,
+                &mut |_| {},
+            )
+            .is_err());
+        assert!(engine
+            .run_observed_with_memories(
+                &session,
+                "Question",
+                CouncilDepth::Quick,
+                &["missing".into()],
+                &cancel,
+                &mut |_| {},
+            )
+            .is_err());
         assert!(engine.store().events(&session.id).unwrap().is_empty());
-        engine.run_observed_with_memories(
-            &session, "First question", CouncilDepth::Quick,
-            &[saved.id.clone()], &cancel, &mut |_| {},
-        ).unwrap();
+        engine
+            .run_observed_with_memories(
+                &session,
+                "First question",
+                CouncilDepth::Quick,
+                &[saved.id.clone()],
+                &cancel,
+                &mut |_| {},
+            )
+            .unwrap();
         engine.run(&session, "Second question").unwrap();
         let calls = engine.provider.calls.lock().unwrap();
         assert_eq!(calls.len(), 2);
         assert_eq!(calls[0].len(), 3);
         // On the next turn there are only system, previous user/answer and new user.
         assert_eq!(calls[1].len(), 4);
-        assert!(!calls[1].iter().any(|m| m.content.contains("SELECTED_NOTES_JSON")));
+        assert!(!calls[1]
+            .iter()
+            .any(|m| m.content.contains("SELECTED_NOTES_JSON")));
         drop(calls);
-        assert_eq!(engine.store().events(&session.id).unwrap().iter().filter(
-            |event| event.kind == EventKind::MemoryAttached
-        ).count(), 1);
+        assert_eq!(
+            engine
+                .store()
+                .events(&session.id)
+                .unwrap()
+                .iter()
+                .filter(|event| event.kind == EventKind::MemoryAttached)
+                .count(),
+            1
+        );
         assert!(engine.store().forget_memory(&saved.id).unwrap());
-        assert!(engine.run_observed_with_memories(
-            &session, "Third question", CouncilDepth::Quick,
-            &[saved.id], &cancel, &mut |_| {},
-        ).is_err());
+        assert!(engine
+            .run_observed_with_memories(
+                &session,
+                "Third question",
+                CouncilDepth::Quick,
+                &[saved.id],
+                &cancel,
+                &mut |_| {},
+            )
+            .is_err());
     }
 
     #[test]
