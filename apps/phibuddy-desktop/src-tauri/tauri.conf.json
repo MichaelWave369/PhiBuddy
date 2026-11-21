@@ -1,0 +1,26 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "PhiBuddy",
+  "version": "0.3.0",
+  "identifier": "labs.phi369.phibuddy",
+  "build": {
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeDevCommand": "npm run dev",
+    "frontendDist": "../dist",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [{
+      "label": "main",
+      "title": "PhiBuddy | Buddy, Homie & Dude",
+      "width": 1250,
+      "height": 800,
+      "minWidth": 860,
+      "minHeight": 600
+    }],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: asset:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": { "active": false }
+}

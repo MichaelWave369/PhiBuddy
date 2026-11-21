@@ -1,0 +1,213 @@
+//! Tauri commands are intentionally narrow and do not expose OS tools.
+//! The CLI and desktop both call the same phibuddy-core engine and SQLite store.
+
+use phibuddy_core::{
+    agents::{Agent, Mode},
+    engine::{CouncilDepth, Engine},
+    store::{RecordedEvent, SavedMessage, Session, Store},
+    Message, ModelProvider,
+};
+use reqwest::{blocking::Client, Url};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::{
+    env,
+    path::PathBuf,
+    str::FromStr,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+use tauri::{Manager, State};
+
+struct Ollama {
+    model: String,
+    client: Client,
+    endpoint: Url,
+}
+
+#[derive(Deserialize)]
+struct OllamaReply { message: OllamaMessage }
+
+#[derive(Deserialize)]
+struct OllamaMessage { content: String }
+
+impl Ollama {
+    fn new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Self {
+            model: env::var("PHIBUDDY_MODEL").unwrap_or_else(|_| "qwen3:4b".to_string()),
+            endpoint: Url::parse("http://127.0.0.1:11434/")?,
+            client: Client::builder().timeout(Duration::from_secs(180)).build()?,
+        })
+    }
+
+    fn check(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let reply: serde_json::Value = self.client.get(self.endpoint.join("api/tags")?)
+            .timeout(Duration::from_secs(5)).send()?.error_for_status()?.json()?;
+        if !reply.get("models").and_then(serde_json::Value::as_array).is_some() {
+            return Err("unexpected response from local Ollama /api/tags".into());
+        }
+        Ok(format!("Ollama connected · {}", self.model))
+    }
+}
+
+impl ModelProvider for Ollama {
+    fn complete(&self, messages: &[Message]) -> phibuddy_core::Result<String> {
+        let payload = messages.iter().map(|m| json!({
+            "role": m.role, "content": m.content
+        })).collect::<Vec<_>>();
+        let result: OllamaReply = self.client.post(self.endpoint.join("api/chat")?)
+            .json(&json!({"model": self.model, "messages": payload, "stream": false}))
+            .send()?.error_for_status()?.json()?;
+        if result.message.content.trim().is_empty() {
+            return Err("Ollama returned an empty response".into());
+        }
+        Ok(result.message.content)
+    }
+}
+
+struct DesktopState {
+    engine: Arc<Mutex<Engine<Ollama>>>,
+}
+
+#[derive(Serialize)]
+struct SessionView {
+    id: String,
+    mode: String,
+    agent: String,
+    created_at: String,
+}
+
+impl From<Session> for SessionView {
+    fn from(s: Session) -> Self {
+        Self {
+            id: s.id,
+            mode: s.mode.as_str().to_string(),
+            agent: s.agent.as_str().to_string(),
+            created_at: s.created_at,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct MessageView {
+    role: String,
+    actor: Option<String>,
+    content: String,
+}
+
+impl From<SavedMessage> for MessageView {
+    fn from(m: SavedMessage) -> Self {
+        Self { role: m.role, actor: m.actor, content: m.content }
+    }
+}
+
+#[derive(Serialize)]
+struct ContributionView {
+    agent: String,
+    phase: String,
+    text: String,
+}
+
+#[derive(Serialize)]
+struct TurnView {
+    turn_id: String,
+    answer: String,
+    contributions: Vec<ContributionView>,
+}
+
+fn default_db() -> PathBuf {
+    if let Some(dir) = env::var_os("LOCALAPPDATA") {
+        return PathBuf::from(dir).join("PhiBuddy").join("buddy.sqlite3");
+    }
+    if let Some(home) = env::var_os("HOME") {
+        return PathBuf::from(home).join(".local/share/phibuddy/buddy.sqlite3");
+    }
+    PathBuf::from("phibuddy.sqlite3")
+}
+
+#[tauri::command]
+fn get_sessions(state: State<'_, DesktopState>) -> Result<Vec<SessionView>, String> {
+    let engine = state.engine.lock().map_err(|_| "engine lock poisoned".to_string())?;
+    engine.store().list_sessions().map(|items| items.into_iter().map(Into::into).collect())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn create_session(state: State<'_, DesktopState>, mode: String, agent: String) -> Result<SessionView, String> {
+    let mode = Mode::from_str(&mode)?;
+    let agent = Agent::from_str(&agent)?;
+    let engine = state.engine.lock().map_err(|_| "engine lock poisoned".to_string())?;
+    engine.store().create_session(mode, agent).map(Into::into).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_messages(state: State<'_, DesktopState>, session_id: String) -> Result<Vec<MessageView>, String> {
+    let engine = state.engine.lock().map_err(|_| "engine lock poisoned".to_string())?;
+    if engine.store().get_session(&session_id).map_err(|e| e.to_string())?.is_none() {
+        return Err("unknown session ID".into());
+    }
+    engine.store().messages(&session_id).map(|items| items.into_iter().map(Into::into).collect())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_events(state: State<'_, DesktopState>, session_id: String) -> Result<Vec<RecordedEvent>, String> {
+    let engine = state.engine.lock().map_err(|_| "engine lock poisoned".to_string())?;
+    if engine.store().get_session(&session_id).map_err(|e| e.to_string())?.is_none() {
+        return Err("unknown session ID".into());
+    }
+    engine.store().events(&session_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn check_ollama(state: State<'_, DesktopState>) -> Result<String, String> {
+    let engine = state.engine.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        engine.lock().map_err(|_| "engine lock poisoned".to_string())?
+            .provider().check().map_err(|e| e.to_string())
+    }).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn send_prompt(
+    state: State<'_, DesktopState>,
+    session_id: String,
+    input: String,
+    depth: String,
+) -> Result<TurnView, String> {
+    let depth = CouncilDepth::from_str(&depth)?;
+    let engine = state.engine.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut engine = engine.lock().map_err(|_| "engine lock poisoned".to_string())?;
+        let session = engine.store().get_session(&session_id)
+            .map_err(|e| e.to_string())?.ok_or("unknown session ID")?;
+        let turn = engine.run_with_depth(&session, &input, depth).map_err(|e| e.to_string())?;
+        Ok::<TurnView, String>(TurnView {
+            turn_id: turn.turn_id,
+            answer: turn.answer,
+            contributions: turn.contributions.into_iter().map(|c| ContributionView {
+                agent: c.agent.as_str().to_string(),
+                phase: c.phase.as_str().to_string(),
+                text: c.text,
+            }).collect(),
+        })
+    }).await.map_err(|e| e.to_string())?
+}
+
+pub fn run() {
+    tauri::Builder::default()
+        .setup(|app| {
+            let provider = Ollama::new().map_err(|e| -> Box<dyn std::error::Error> { e })?;
+            let store = Store::open(default_db()).map_err(|e| -> Box<dyn std::error::Error> { e })?;
+            app.manage(DesktopState {
+                engine: Arc::new(Mutex::new(Engine::new(provider, store))),
+            });
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_sessions, create_session, get_messages, get_events,
+            check_ollama, send_prompt
+        ])
+        .run(tauri::generate_context!())
+        .expect("PhiBuddy desktop startup failed");
+}
