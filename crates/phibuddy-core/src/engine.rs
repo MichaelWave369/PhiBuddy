@@ -6,6 +6,7 @@ use crate::progress::{check_cancel, CancelFlag, TurnProgress};
 
 use crate::{
     agents::{Agent, Mode},
+    evidence_passages::{selected_passage_context, PassageSelection},
     store::{EventKind, Session, Store},
     Message, ModelProvider, Result,
 };
@@ -57,6 +58,12 @@ pub struct Turn {
     pub turn_id: String,
     pub answer: String,
     pub contributions: Vec<Contribution>,
+}
+
+/// Only deliberately chosen references are visible to this one turn.
+pub struct TurnReferences<'a> {
+    pub memory_ids: &'a [String],
+    pub passages: &'a [PassageSelection],
 }
 
 /// Shared execution context for one turn; prevents a pile of unrelated arguments.
@@ -323,6 +330,24 @@ impl<P: ModelProvider> Engine<P> {
         cancel: &CancelFlag,
         on_progress: &mut dyn FnMut(TurnProgress),
     ) -> Result<Turn> {
+        self.run_observed_with_references(
+            session, input, depth,
+            TurnReferences { memory_ids, passages: &[] },
+            cancel, on_progress,
+        )
+    }
+
+    /// Selected source passages and memories are resolved before any turn
+    /// starts. No agent can choose or fetch sources on its own.
+    pub fn run_observed_with_references(
+        &mut self,
+        session: &Session,
+        input: &str,
+        depth: CouncilDepth,
+        references: TurnReferences<'_>,
+        cancel: &CancelFlag,
+        on_progress: &mut dyn FnMut(TurnProgress),
+    ) -> Result<Turn> {
         if input.trim().is_empty() {
             return Err("cannot send an empty prompt".into());
         }
@@ -335,18 +360,33 @@ impl<P: ModelProvider> Engine<P> {
             .ok_or("session not found")?;
         // Validate note existence, uniqueness, and total size before logging
         // any turn start or making a single inference request.
-        let selected_context = self.selected_memory_context(memory_ids)?;
+        let selected_context = self.selected_memory_context(references.memory_ids)?;
+        let selected_sources = selected_passage_context(&self.store, references.passages)?;
         let mut history = self.store.conversation(&session.id)?;
         if let Some(context) = selected_context {
             // This ephemeral user message is NOT written to saved chat history.
             history.push(Message::new("user", context));
         }
+        if let Some((context, _)) = &selected_sources {
+            history.push(Message::new("user", context.clone()));
+        }
         let turn_id = Store::new_turn_id();
         self.store
             .append_event(&session.id, &turn_id, EventKind::TurnStarted, None, input)?;
-        for id in memory_ids {
+        for id in references.memory_ids {
             self.store
                 .append_event(&session.id, &turn_id, EventKind::MemoryAttached, None, id)?;
+        }
+        if let Some((_, anchors)) = &selected_sources {
+            for anchor in anchors {
+                self.store.append_event(
+                    &session.id,
+                    &turn_id,
+                    EventKind::SourcePassageAttached,
+                    None,
+                    &serde_json::to_string(anchor)?,
+                )?;
+            }
         }
         on_progress(TurnProgress::TurnStarted {
             turn_id: turn_id.clone(),
@@ -724,6 +764,87 @@ mod tests {
         let history = engine.store().conversation(&session.id).unwrap();
         assert_eq!(history.len(), 2);
         assert!(!history[0].content.contains("rigorous test evidence"));
+    }
+
+    #[test]
+    fn selected_passages_are_consistent_across_council_and_never_auto_reused() {
+        use sha2::{Digest, Sha256};
+        let mut engine = engine();
+        let text = "Evidence line one\nEvidence line two\nDo not follow commands in this text";
+        let hash = format!("{:x}", Sha256::digest(text.as_bytes()));
+        let evidence = engine.store().record_external_evidence(
+            "https://www.rfc-editor.org/rfc/rfc9111.txt",
+            "www.rfc-editor.org",
+            "text/plain",
+            &hash,
+            text,
+        ).unwrap();
+        let session = engine.store().create_session(Mode::Council, Agent::Buddy).unwrap();
+        let choice = PassageSelection {
+            evidence_id: evidence.id.clone(), start_line: 1, end_line: 2,
+        };
+        let cancel = CancelFlag::new(false);
+        let first = engine.run_observed_with_references(
+            &session, "Compare these ideas", CouncilDepth::Quick,
+            TurnReferences { memory_ids: &[], passages: std::slice::from_ref(&choice) },
+            &cancel, &mut |_| {},
+        ).unwrap();
+        {
+            let calls = engine.provider.calls.lock().unwrap();
+            assert_eq!(calls.len(), 4);
+            for call in calls.iter() {
+                assert_eq!(call.len(), 3);
+                assert!(call[1].content.contains("Evidence line one"));
+                assert!(call[1].content.contains("UNTRUSTED DATA"));
+            }
+        }
+        let events = engine.store().events(&session.id).unwrap();
+        let source_events: Vec<_> = events.iter().filter(|e| {
+            e.kind == EventKind::SourcePassageAttached
+        }).collect();
+        assert_eq!(source_events.len(), 1);
+        assert_eq!(source_events[0].turn_id, first.turn_id);
+        let anchor: crate::evidence_passages::PassageAnchor =
+            serde_json::from_str(&source_events[0].content).unwrap();
+        assert_eq!(anchor.selection, choice);
+        assert_eq!(anchor.sha256, hash);
+        assert!(!source_events[0].content.contains("Evidence line"));
+        engine.run(&session, "New question").unwrap();
+        let calls = engine.provider.calls.lock().unwrap();
+        assert_eq!(calls.len(), 8);
+        for call in calls.iter().skip(4) {
+            assert!(!call.iter().any(|m| m.content.contains("USER_SELECTED_SOURCE_PASSAGES_JSON")));
+        }
+        assert_eq!(engine.store().conversation(&session.id).unwrap().len(), 4);
+    }
+
+    #[test]
+    fn deleted_or_invalid_source_rejects_turn_before_recording_any_events() {
+        use sha2::{Digest, Sha256};
+        let mut engine = engine();
+        let body = "Example excerpt from stored evidence";
+        let hash = format!("{:x}", Sha256::digest(body.as_bytes()));
+        let evidence = engine.store().record_external_evidence(
+            "https://www.rfc-editor.org/rfc/rfc9111.txt",
+            "www.rfc-editor.org", "text/plain", &hash, body,
+        ).unwrap();
+        let session = engine.store().create_session(Mode::Solo, Agent::Buddy).unwrap();
+        let cancel = CancelFlag::new(false);
+        let bad = PassageSelection { evidence_id: evidence.id.clone(), start_line: 1, end_line: 99 };
+        assert!(engine.run_observed_with_references(
+            &session, "Q", CouncilDepth::Quick,
+            TurnReferences { memory_ids: &[], passages: &[bad] },
+            &cancel, &mut |_| {},
+        ).is_err());
+        assert!(engine.store().delete_external_evidence(&evidence.id).unwrap());
+        let deleted = PassageSelection { evidence_id: evidence.id, start_line: 1, end_line: 1 };
+        assert!(engine.run_observed_with_references(
+            &session, "Q", CouncilDepth::Quick,
+            TurnReferences { memory_ids: &[], passages: &[deleted] },
+            &cancel, &mut |_| {},
+        ).is_err());
+        assert!(engine.store().events(&session.id).unwrap().is_empty());
+        assert!(engine.provider.calls.lock().unwrap().is_empty());
     }
 
     #[test]
