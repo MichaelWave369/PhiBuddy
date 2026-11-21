@@ -7,3 +7,8 @@
 .DS_Store
 .vscode/
 .idea/
+
+# Nested desktop toolchains and generated bundles
+**/node_modules/
+**/dist/
+**/target/
