@@ -50,13 +50,23 @@ The desktop now offers an explicit **Memory** tab with save, literal search, per
 
 See [Memory Workshop v0.6 design and acceptance](docs/MEMORY_WORKSHOP_V0.6.md). This is development source, not an installer or production memory system.
 
-## Memory Discovery (v0.7 alpha, draft)
+## Memory Discovery (v0.7)
 
 **Find related notes** in the desktop composer now runs a deterministic **local** lexical search over up to 1,000 saved user notes. It previews up to 8 matches, shows the terms responsible for each relevance score, and warns when a note is 90+ days old or has an unreadable saved date. It never silently selects or sends a note to a model: check **Attach next turn** yourself.
 
 The inspector distinguishes **unverified user notes** from **independently verified external sources**, explicitly displaying that no external source verification is implemented yet. Source labels, including URL-looking strings, remain user-supplied data.
 
 Read [Memory Discovery v0.7 design and acceptance](docs/MEMORY_DISCOVERY_V0.7.md). This is development source, not an installer or externally verified evidence system.
+
+## External Evidence Registry (v0.8 alpha, draft)
+
+The desktop **Evidence** tab lets you explicitly retrieve UTF-8 plaintext from a small HTTPS source allowlist. Every local snapshot has a URL, source host, retrieval timestamp, and SHA-256 fingerprint, and is kept **separate** from user memory and chat history. Neither retrieval nor storage makes a document factually verified. Evidence snapshots are **not automatically shown to Ollama**, and no agent can invoke retrieval.
+
+Supported inputs include `https://www.rfc-editor.org/rfc/rfc9111.txt` and a GitHub Raw text file such as `https://raw.githubusercontent.com/rust-lang/rust/master/README.md`. Fetches reject arbitrary hosts, HTML, redirects, credentials, query strings, non-UTF-8 data, and responses over 256 KiB.
+
+Read [Evidence Registry v0.8 architecture and acceptance](docs/EVIDENCE_REGISTRY_V0.8.md). Review source only; not a release or a general web browser.
+
+Set `PHIBUDDY_DB_PATH` in your test shell to use an isolated SQLite database. A fresh clone by itself still shares the normal database path.
 
 ## Run the CLI on Windows 11
 
@@ -103,6 +113,6 @@ See [Architecture](docs/ARCHITECTURE.md), [Validation](docs/VALIDATION.md) and [
 
 ## What comes later
 
-Independently verified external source ingestion, semantic retrieval, security policy, sandboxed tools, optional PhiOS adapters, XR and voice are **design proposals**, not implemented features. We reviewed external architectural proposals from Grok, Claude and Hydrogen but intentionally kept this first build small and testable.
+Independent claim verification, general web retrieval, semantic source matching, sandboxed tools, optional PhiOS adapters, XR and voice are **design proposals**, not implemented features. We reviewed external architectural proposals from Grok, Claude and Hydrogen but intentionally kept this first build small and testable.
 
 MIT License. Copyright (c) 2026 Michael Hughes.

@@ -54,3 +54,18 @@ select{width:100%;color:#e8eef5;background:#162335;border:1px solid #304157;bord
 .memory-age-warning{border-left:2px solid #d8a66e;padding-left:9px;color:#eac8a2;font-size:11px;line-height:1.5;margin:9px 0}
 .verified-evidence{border-bottom:1px solid #2c4153;padding-bottom:13px;margin-bottom:14px}
 .verified-evidence .hint{margin:7px 0 0}
+
+/* v0.8 evidence registry: externally retrieved snapshots, not verification. */
+.evidence-registry{display:flex;flex-direction:column;gap:11px}
+.evidence-registry h3{font-size:13px;color:#9be5d3;margin:2px 0}
+.evidence-registry label{font-size:11px;color:#a2bbd0}
+.evidence-registry input{width:100%;padding:10px;background:#112236;border:1px solid #36566f;border-radius:8px;color:#e9f5f7;font-size:12px}
+.evidence-registry .hint{margin:4px 0}
+.registry-divider{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:13px;border-top:1px solid #29445a}
+.registry-divider button,.evidence-source-record>button:not(.delete-memory){border:1px solid #36566f;background:#1b3347;color:#cde5eb;border-radius:7px;padding:7px 10px;font-size:11px}
+.evidence-source-record{display:flex;flex-direction:column;gap:8px;padding:12px;background:#122839;border:1px solid #33546a;border-radius:10px;overflow-wrap:anywhere}
+.evidence-source-label{font-size:11px;font-weight:700;color:#e6cba4}
+.evidence-source-url{font-size:11px;font-weight:600;color:#a1e1d2;overflow-wrap:anywhere}
+.evidence-meta,.evidence-hash{font-size:10px;color:#a5b8cc;overflow-wrap:anywhere;line-height:1.45;margin:0}
+.evidence-hash{font-family:ui-monospace,monospace}
+.evidence-snapshot{font:11px/1.5 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;overflow-y:auto;max-height:300px;background:#0b1c2b;padding:10px;border:1px solid #2a4257;border-radius:6px;margin:0}

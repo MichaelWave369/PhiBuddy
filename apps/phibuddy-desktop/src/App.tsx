@@ -13,6 +13,16 @@ type MemoryRecord = {
   source_ref: string | null; created_at: string;
 };
 type TurnMemoryRef = { id: string; memory: MemoryRecord | null };
+type EvidenceRecord = {
+  id: string;
+  source_url: string;
+  source_host: string;
+  content_type: string;
+  content_sha256: string;
+  retrieved_at: string;
+  content: string;
+  status: "retrieved_not_fact_checked";
+};
 type MemorySuggestion = {
   note: MemoryRecord;
   relevance_score: number;
@@ -54,7 +64,7 @@ export default function App() {
   const [liveOutput, setLiveOutput] = useState("");
   const [error, setError] = useState("");
   const [status, setStatus] = useState("Checking Ollama…");
-  const [inspector, setInspector] = useState<"events" | "contributions" | "memory">("contributions");
+  const [inspector, setInspector] = useState<"events" | "contributions" | "memory" | "evidence">("contributions");
   const [memories, setMemories] = useState<MemoryRecord[]>([]);
   const [memorySearch, setMemorySearch] = useState("");
   const [memoryDraft, setMemoryDraft] = useState("");
@@ -72,6 +82,12 @@ export default function App() {
   // Discard old async suggestions when a draft/session/memory changes.
   const suggestionRequestRef = useRef(0);
   const [selectedTurn, setSelectedTurn] = useState<string | null>(null);
+  const [evidence, setEvidence] = useState<EvidenceRecord[]>([]);
+  const [evidenceUrl, setEvidenceUrl] = useState("");
+  const [evidenceBusy, setEvidenceBusy] = useState(false);
+  const [evidenceError, setEvidenceError] = useState("");
+  const [evidenceDeleteConfirm, setEvidenceDeleteConfirm] = useState<string | null>(null);
+  const [evidenceSelected, setEvidenceSelected] = useState<string | null>(null);
 
   const active = sessions.find((s) => s.id === activeId);
   const visibleMessages = messages.filter((m) => m.role !== "contribution");
@@ -185,6 +201,45 @@ export default function App() {
     }
   }
 
+  async function loadEvidence() {
+    const items = await invoke<EvidenceRecord[]>("list_external_evidence");
+    setEvidence(items);
+  }
+
+  async function captureEvidence() {
+    if (busy || evidenceBusy || !evidenceUrl.trim()) return;
+    setEvidenceBusy(true);
+    setEvidenceError("");
+    try {
+      const record = await invoke<EvidenceRecord>("fetch_external_evidence", {
+        url: evidenceUrl.trim(),
+      });
+      await loadEvidence();
+      setEvidenceSelected(record.id);
+      setEvidenceUrl("");
+    } catch (e) {
+      setEvidenceError(errorText(e));
+    } finally {
+      setEvidenceBusy(false);
+    }
+  }
+
+  async function removeEvidence(id: string) {
+    if (busy || evidenceBusy || evidenceDeleteConfirm !== id) return;
+    setEvidenceBusy(true);
+    setEvidenceError("");
+    try {
+      await invoke<boolean>("delete_external_evidence", { evidenceId: id });
+      setEvidenceDeleteConfirm(null);
+      if (evidenceSelected === id) setEvidenceSelected(null);
+      await loadEvidence();
+    } catch (e) {
+      setEvidenceError(errorText(e));
+    } finally {
+      setEvidenceBusy(false);
+    }
+  }
+
   async function reloadSessions() {
     const result = await invoke<Session[]>("get_sessions");
     setSessions(result);
@@ -223,6 +278,11 @@ export default function App() {
       }
     })();
     return () => { cancelled = true; };
+  }, []);
+
+  // Evidence records are local and can be inspected without Ollama.
+  useEffect(() => {
+    void loadEvidence().catch((e) => setEvidenceError(errorText(e)));
   }, []);
 
   // Memory management works even when Ollama is offline.
@@ -453,8 +513,11 @@ export default function App() {
           <button role="tab" aria-selected={inspector === "memory"}
             className={inspector === "memory" ? "active" : ""}
             onClick={() => setInspector("memory")}>Memory</button>
+          <button role="tab" aria-selected={inspector === "evidence"}
+            className={inspector === "evidence" ? "active" : ""}
+            onClick={() => setInspector("evidence")}>Evidence</button>
         </div>
-        {inspector !== "memory" && turns.length > 0 && <label className="turn-select">Turn
+        {inspector !== "memory" && inspector !== "evidence" && turns.length > 0 && <label className="turn-select">Turn
           <select value={inspectedTurn ?? ""} onChange={(e) => setSelectedTurn(e.target.value)}>
             {turns.map((t, i) => <option key={t} value={t}>Turn {turns.length - i} · {t.slice(0, 8)}</option>)}
           </select></label>}
@@ -537,6 +600,63 @@ export default function App() {
               ))}
               {memories.length === 0 && <p className="hint">No notes found. Save one above to begin.</p>}
             </section>
+          ) : inspector === "evidence" ? (
+            <section className="evidence-registry" aria-label="External evidence registry">
+              <h3>External source snapshots</h3>
+              <p className="hint">Only explicit, user-requested HTTPS text fetches from GitHub Raw or the RFC Editor. Retrieved documents are <strong>not</strong> independently fact-checked, and are never automatically passed to the AI.</p>
+              {evidenceError && <p className="error" role="alert">{evidenceError}</p>}
+              <label htmlFor="evidence-url">Public source URL</label>
+              <input id="evidence-url" value={evidenceUrl} maxLength={2048}
+                onChange={(e) => setEvidenceUrl(e.target.value)}
+                disabled={evidenceBusy || busy}
+                placeholder="https://www.rfc-editor.org/rfc/rfc9111.txt" />
+              <button className="primary wide" disabled={evidenceBusy || busy || !evidenceUrl.trim()}
+                onClick={() => void captureEvidence()}>
+                {evidenceBusy ? "Retrieving…" : "Retrieve and save snapshot"}
+              </button>
+              <p className="hint">No redirects. No login, HTML, arbitrary websites, or agent-initiated fetching. Text is capped at 256 KiB and stored unencrypted in local SQLite.</p>
+              <div className="registry-divider">
+                <h3>Saved retrieved sources ({evidence.length})</h3>
+                <button type="button" disabled={evidenceBusy || busy}
+                  onClick={() => void loadEvidence().catch((e) => setEvidenceError(errorText(e)))}>
+                  Refresh
+                </button>
+              </div>
+              {evidence.map((record) => (
+                <article key={record.id} className="evidence-source-record">
+                  <div className="evidence-source-label">Retrieved · Not fact-checked</div>
+                  <div className="evidence-source-url">{record.source_url}</div>
+                  <p className="evidence-meta">
+                    {record.source_host} · {record.content_type} · {record.retrieved_at} · {record.content.length} text characters
+                  </p>
+                  <p className="evidence-hash">SHA-256: {record.content_sha256}</p>
+                  <button type="button" disabled={evidenceBusy}
+                    onClick={() => setEvidenceSelected(evidenceSelected === record.id ? null : record.id)}>
+                    {evidenceSelected === record.id ? "Hide saved text" : "Inspect saved text"}
+                  </button>
+                  {evidenceSelected === record.id && (
+                    <pre className="evidence-snapshot">{record.content}</pre>
+                  )}
+                  {evidenceDeleteConfirm === record.id ? (
+                    <div className="delete-actions">
+                      <span>Delete this local snapshot?</span>
+                      <button className="cancel" type="button" disabled={evidenceBusy || busy}
+                        onClick={() => void removeEvidence(record.id)}>Confirm delete</button>
+                      <button type="button" disabled={evidenceBusy}
+                        onClick={() => setEvidenceDeleteConfirm(null)}>Keep</button>
+                    </div>
+                  ) : <button type="button" className="delete-memory" disabled={evidenceBusy || busy}
+                    onClick={() => setEvidenceDeleteConfirm(record.id)}>Delete snapshot</button>}
+                </article>
+              ))}
+              {evidence.length === 0 && <p className="hint">No retrieved snapshots yet. They remain separate from personal memory.</p>}
+              <section className="verified-evidence">
+                <h3>Source categories</h3>
+                <p className="hint"><strong>Personal notes:</strong> entered by you, never externally verified by this app.</p>
+                <p className="hint"><strong>Retrieved sources:</strong> directly fetched text, with URL, timestamp and fingerprint, but no factual validation.</p>
+                <p className="hint"><strong>Unverified claims:</strong> statements generated by agents are not fact-checked merely because a source snapshot exists.</p>
+              </section>
+            </section>
           ) : (
             <>
               {turnMemoryRefs.length > 0 && <section className="turn-sources">
@@ -553,8 +673,8 @@ export default function App() {
                 ))}
               </section>}
               <section className="verified-evidence">
-                <h3>Independently verified external sources</h3>
-                <p className="hint">None. This version has no external verification connector. A URL or source label on a saved note does not make it a verified citation.</p>
+                <h3>External evidence status</h3>
+                <p className="hint">Fetched text snapshots are available in the Evidence tab, but no external claim verification is performed. Generated citations and saved memory source labels remain unverified.</p>
               </section>
                             {inspector === "contributions" ? (
             contributions.length ? contributions.map((e) =>

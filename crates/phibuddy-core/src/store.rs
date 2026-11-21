@@ -4,6 +4,7 @@ use std::{fs, path::Path, str::FromStr};
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::{
@@ -41,6 +42,32 @@ pub struct MemoryRecord {
 pub struct MemoryCandidate {
     pub note: MemoryRecord,
     pub age_days: Option<i64>,
+}
+
+/// A stored snapshot of externally fetched text. Retrieval does not prove truth.
+#[derive(Clone, Debug, Serialize)]
+pub struct EvidenceRecord {
+    pub id: String,
+    pub source_url: String,
+    pub source_host: String,
+    pub content_type: String,
+    pub content_sha256: String,
+    pub retrieved_at: String,
+    pub content: String,
+    pub status: String,
+}
+
+fn read_evidence_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<EvidenceRecord> {
+    Ok(EvidenceRecord {
+        id: row.get(0)?,
+        source_url: row.get(1)?,
+        source_host: row.get(2)?,
+        content_type: row.get(3)?,
+        content_sha256: row.get(4)?,
+        retrieved_at: row.get(5)?,
+        content: row.get(6)?,
+        status: "retrieved_not_fact_checked".to_string(),
+    })
 }
 
 fn read_memory_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryRecord> {
@@ -186,7 +213,18 @@ impl Store {
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             CREATE INDEX IF NOT EXISTS memory_notes_created_idx
-                ON memory_notes(created_at);",
+                ON memory_notes(created_at);
+            CREATE TABLE IF NOT EXISTS external_evidence (
+                id TEXT PRIMARY KEY,
+                source_url TEXT NOT NULL,
+                source_host TEXT NOT NULL,
+                content_type TEXT NOT NULL,
+                content_sha256 TEXT NOT NULL CHECK(length(content_sha256) = 64),
+                retrieved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                content TEXT NOT NULL CHECK(length(content) > 0)
+            );
+            CREATE INDEX IF NOT EXISTS external_evidence_retrieved_idx
+                ON external_evidence(retrieved_at);",
         )?;
         conn.pragma_update(None, "secure_delete", "ON")?;
         Ok(Self { conn })
@@ -278,6 +316,81 @@ impl Store {
             .filter(|m| m.role == "user" || m.role == "assistant")
             .map(|m| Message::new(m.role, m.content))
             .collect())
+    }
+
+    /// Store only a text response that the desktop explicitly retrieved on the
+    /// user's instruction. Caller must enforce HTTPS / host policy and hash.
+    /// Nothing in this table becomes model context automatically.
+    pub fn record_external_evidence(
+        &self,
+        source_url: &str,
+        source_host: &str,
+        content_type: &str,
+        content_sha256: &str,
+        content: &str,
+    ) -> Result<EvidenceRecord> {
+        if source_url.is_empty()
+            || source_url.len() > 2048
+            || source_host.is_empty()
+            || source_host.len() > 253
+            || content_type.is_empty()
+            || content_type.len() > 128
+            || content.is_empty()
+            || content.len() > 262_144
+            || content.contains('\0')
+            || content_sha256.len() != 64
+            || !content_sha256.bytes().all(|b| b.is_ascii_hexdigit())
+        {
+            return Err("external evidence fields failed size or integrity-format checks".into());
+        }
+        // Reject mismatched fingerprints rather than storing a plausible
+        // looking but incorrect hash beside an external document.
+        let computed_sha256 = format!("{:x}", Sha256::digest(content.as_bytes()));
+        if computed_sha256 != content_sha256 {
+            return Err("external evidence SHA-256 does not match captured text".into());
+        }
+        let id = Uuid::new_v4().to_string();
+        self.conn.execute(
+            "INSERT INTO external_evidence
+             (id, source_url, source_host, content_type, content_sha256, content)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                id,
+                source_url,
+                source_host,
+                content_type,
+                content_sha256,
+                content
+            ],
+        )?;
+        self.get_external_evidence(&id)?
+            .ok_or_else(|| "saved evidence disappeared".into())
+    }
+
+    pub fn get_external_evidence(&self, id: &str) -> Result<Option<EvidenceRecord>> {
+        Ok(self.conn.query_row(
+            "SELECT id, source_url, source_host, content_type, content_sha256, retrieved_at, content
+             FROM external_evidence WHERE id = ?1",
+            [id], read_evidence_row,
+        ).optional()?)
+    }
+
+    pub fn list_external_evidence(&self, limit: usize) -> Result<Vec<EvidenceRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, source_url, source_host, content_type, content_sha256, retrieved_at, content
+             FROM external_evidence ORDER BY retrieved_at DESC, rowid DESC LIMIT ?1",
+        )?;
+        let entries = stmt
+            .query_map([limit.clamp(1, 25) as i64], read_evidence_row)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(entries)
+    }
+
+    pub fn delete_external_evidence(&self, id: &str) -> Result<bool> {
+        Ok(self
+            .conn
+            .execute("DELETE FROM external_evidence WHERE id = ?1", [id])?
+            > 0)
     }
 
     /// Explicit memory entry. Nothing is automatically extracted from model replies.
@@ -593,6 +706,90 @@ mod tests {
             .is_err());
         assert!(store.search_memories(" ", 10).is_err());
         assert!(store.list_memories(10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn external_evidence_is_separate_from_manual_memories_and_deletable() {
+        let store = Store::in_memory().unwrap();
+        let record = store
+            .record_external_evidence(
+                "https://www.rfc-editor.org/rfc/rfc9111.txt",
+                "www.rfc-editor.org",
+                "text/plain",
+                &format!("{:x}", Sha256::digest(b"RFC example body")),
+                "RFC example body",
+            )
+            .unwrap();
+        assert_eq!(record.status, "retrieved_not_fact_checked");
+        assert_eq!(record.content, "RFC example body");
+        assert_eq!(store.list_external_evidence(10).unwrap().len(), 1);
+        assert!(store.list_memories(10).unwrap().is_empty());
+        assert!(store.list_sessions().unwrap().is_empty());
+        assert!(store.delete_external_evidence(&record.id).unwrap());
+        assert!(store.get_external_evidence(&record.id).unwrap().is_none());
+        assert!(!store.delete_external_evidence(&record.id).unwrap());
+    }
+
+    #[test]
+    fn evidence_fingerprint_mismatch_is_rejected_and_snapshot_survives_reopen() {
+        let path =
+            std::env::temp_dir().join(format!("phibuddy-evidence-{}.sqlite3", Uuid::new_v4()));
+        let id = {
+            let store = Store::open(&path).unwrap();
+            assert!(store
+                .record_external_evidence(
+                    "https://www.rfc-editor.org/rfc/rfc9111.txt",
+                    "www.rfc-editor.org",
+                    "text/plain",
+                    &"0".repeat(64),
+                    "A verified byte string",
+                )
+                .is_err());
+            store
+                .record_external_evidence(
+                    "https://www.rfc-editor.org/rfc/rfc9111.txt",
+                    "www.rfc-editor.org",
+                    "text/plain",
+                    &format!("{:x}", Sha256::digest(b"Example source text")),
+                    "Example source text",
+                )
+                .unwrap()
+                .id
+        };
+        {
+            let store = Store::open(&path).unwrap();
+            let snapshot = store.get_external_evidence(&id).unwrap().unwrap();
+            assert_eq!(snapshot.content, "Example source text");
+            assert!(store.delete_external_evidence(&id).unwrap());
+        }
+        {
+            let store = Store::open(&path).unwrap();
+            assert!(store.get_external_evidence(&id).unwrap().is_none());
+        }
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite3-wal"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite3-shm"));
+    }
+
+    #[test]
+    fn external_evidence_input_limits_and_schema_addition() {
+        let store = Store::in_memory().unwrap();
+        assert!(store
+            .record_external_evidence("url", "host", "text/plain", "invalid", "text")
+            .is_err());
+        assert!(store
+            .record_external_evidence("url", "host", "text/plain", &"0".repeat(64), "")
+            .is_err());
+        assert!(store
+            .record_external_evidence(
+                "url",
+                "host",
+                "text/plain",
+                &"0".repeat(64),
+                &"x".repeat(262_145),
+            )
+            .is_err());
+        assert!(store.list_external_evidence(10).unwrap().is_empty());
     }
 
     #[test]
