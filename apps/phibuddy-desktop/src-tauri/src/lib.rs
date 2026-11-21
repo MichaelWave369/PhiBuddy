@@ -5,7 +5,7 @@ use phibuddy_core::{
     agents::{Agent, Mode},
     engine::{CouncilDepth, Engine},
     progress::{check_cancel, CancelFlag, TurnProgress},
-    store::{RecordedEvent, SavedMessage, Session, Store},
+    store::{EventKind, MemoryRecord, RecordedEvent, SavedMessage, Session, Store},
     Message, ModelProvider,
 };
 use reqwest::{blocking::Client, Url};
@@ -177,6 +177,14 @@ impl From<SavedMessage> for MessageView {
     }
 }
 
+/// Metadata is resolved from the active memory ledger each time;
+/// deleted notes appear as missing, rather than retaining an undeletable copy.
+#[derive(Serialize)]
+struct TurnMemoryRef {
+    id: String,
+    memory: Option<MemoryRecord>,
+}
+
 #[derive(Serialize)]
 struct ContributionView {
     agent: String,
@@ -235,6 +243,57 @@ fn get_events(state: State<'_, DesktopState>, session_id: String) -> Result<Vec<
     engine.store().events(&session_id).map_err(|e| e.to_string())
 }
 
+/// Read explicit user-controlled notes. Search is a simple literal substring.
+#[tauri::command]
+fn list_memories(
+    state: State<'_, DesktopState>,
+    query: Option<String>,
+) -> Result<Vec<MemoryRecord>, String> {
+    let engine = state.engine.lock().map_err(|_| "engine lock poisoned".to_string())?;
+    match query.as_deref().map(str::trim).filter(|q| !q.is_empty()) {
+        Some(query) => engine.store().search_memories(query, 100).map_err(|e| e.to_string()),
+        None => engine.store().list_memories(100).map_err(|e| e.to_string()),
+    }
+}
+
+#[tauri::command]
+fn save_memory(
+    state: State<'_, DesktopState>,
+    content: String,
+    source_ref: Option<String>,
+) -> Result<MemoryRecord, String> {
+    let engine = state.engine.lock().map_err(|_| "engine lock poisoned".to_string())?;
+    engine.store().remember_manual(&content, source_ref.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_memory(state: State<'_, DesktopState>, memory_id: String) -> Result<bool, String> {
+    let engine = state.engine.lock().map_err(|_| "engine lock poisoned".to_string())?;
+    engine.store().forget_memory(&memory_id).map_err(|e| e.to_string())
+}
+
+/// The event log records only note IDs. Resolve the labels and content from
+/// the current ledger, so a deleted note is not recreated by the inspector.
+#[tauri::command]
+fn get_turn_memories(
+    state: State<'_, DesktopState>,
+    session_id: String,
+    turn_id: String,
+) -> Result<Vec<TurnMemoryRef>, String> {
+    let engine = state.engine.lock().map_err(|_| "engine lock poisoned".to_string())?;
+    if engine.store().get_session(&session_id).map_err(|e| e.to_string())?.is_none() {
+        return Err("unknown session ID".into());
+    }
+    let events = engine.store().events(&session_id).map_err(|e| e.to_string())?;
+    events.into_iter().filter(|event| {
+        event.turn_id == turn_id && event.kind == EventKind::MemoryAttached
+    }).map(|event| {
+        let memory = engine.store().get_memory(&event.content).map_err(|e| e.to_string())?;
+        Ok(TurnMemoryRef { id: event.content, memory })
+    }).collect()
+}
+
 #[tauri::command]
 async fn check_ollama(state: State<'_, DesktopState>) -> Result<String, String> {
     let engine = state.engine.clone();
@@ -262,6 +321,7 @@ async fn send_prompt(
     session_id: String,
     input: String,
     depth: String,
+    memory_ids: Vec<String>,
     on_progress: Channel<TurnProgress>,
 ) -> Result<TurnView, String> {
     let depth = CouncilDepth::from_str(&depth)?;
@@ -283,10 +343,11 @@ async fn send_prompt(
         let session = engine.store().get_session(&session_id)
             .map_err(|e| e.to_string())?.ok_or("unknown session ID")?;
         let disconnected = cancel.clone();
-        let turn = engine.run_observed(
+        let turn = engine.run_observed_with_memories(
             &session,
             &input,
             depth,
+            &memory_ids,
             &cancel,
             &mut |progress| {
                 if on_progress.send(progress).is_err() {
@@ -322,7 +383,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_sessions, create_session, get_messages, get_events,
-            check_ollama, send_prompt, cancel_turn
+            check_ollama, send_prompt, cancel_turn,
+            list_memories, save_memory, delete_memory, get_turn_memories
         ])
         .run(tauri::generate_context!())
         .expect("PhiBuddy desktop startup failed");
