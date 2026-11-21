@@ -12,7 +12,21 @@ PhiBuddy v0.2 is a **CLI and Rust core**, not a completed desktop app. It uses o
 - No shell execution, browser actions, filesystem edits, API keys, autonomous agents, or GitHub writes.
 - Unit tests for mode routing, independent drafts, critique round, SQLite events, schema migration, and provider failure.
 
-## Run on Windows 11
+## Desktop workbench preview (v0.3, draft PR)
+
+An opt-in **Tauri 2 + React desktop preview** now lives in [apps/phibuddy-desktop](apps/phibuddy-desktop/README.md). It shares the existing Rust core and local SQLite sessions. The UI displays the original Council drafts, critiques, and event timeline. It is a source preview, **not a published installer or tested hardware release**.
+
+On Windows with Rust, Node.js 22+, WebView2, MSVC Build Tools, and Ollama installed:
+
+```powershell
+cd apps/phibuddy-desktop
+npm install
+npm run desktop
+```
+
+The desktop is restricted to local Ollama, and no agent can execute commands or edit files. See [the desktop architecture and test checklist](docs/DESKTOP_V0.3.md). The CLI below remains fully supported.
+
+## Run the CLI on Windows 11
 
 Prerequisites: Rust stable toolchain (`cargo --version`), Ollama (`ollama list`) and an installed model. `qwen3:4b` is the default and can be changed using `--model`.
 
@@ -57,6 +71,6 @@ See [Architecture](docs/ARCHITECTURE.md), [Validation](docs/VALIDATION.md) and [
 
 ## What comes later
 
-Tauri desktop workbench, streaming, sourced memory, security policy, sandboxed tools, optional PhiOS adapters, XR and voice are **design proposals**, not implemented features. We reviewed external architectural proposals from Grok, Claude and Hydrogen but intentionally kept this first build small and testable.
+Desktop streaming, sourced memory, security policy, sandboxed tools, optional PhiOS adapters, XR and voice are **design proposals**, not implemented features. We reviewed external architectural proposals from Grok, Claude and Hydrogen but intentionally kept this first build small and testable.
 
 MIT License. Copyright (c) 2026 Michael Hughes.
