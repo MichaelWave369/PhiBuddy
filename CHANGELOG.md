@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.0-alpha.1 (draft source, not released)
+
+- Added a user-triggered external text evidence registry for two allowlisted URL families: GitHub Raw and RFC Editor plain-text RFCs.
+- Each captured source stores a local UTF-8 text snapshot, canonical HTTPS URL, host, content type, fetch timestamp, and SHA-256 fingerprint in a separate SQLite table.
+- Hardened the fetch path: HTTPS only, fixed domain/path allowlist, no embedded credentials/query/fragment, no custom ports, no redirects or proxy use, 8-second connect and 25-second overall timeouts, 256 KiB response cap, no HTML/binary processing.
+- Introduced a desktop Evidence inspector tab with explicit retrieve, snapshot inspection, and deletion confirmation. Agent-generated text cannot trigger fetching.
+- Distinguishes user-saved notes, retrieved-not-fact-checked sources, and unverified model claims. No source is represented as independently fact-checked.
+- Added deterministic source-URL policy tests, core digest-validation tests, and SQLite snapshot persistence/deletion tests.
+- No automatic source citations, claim verification, prompt injection, agent tools, shell, or autonomous browsing.
+
+
 ## 0.7.0-alpha.1 (draft source, not released)
 
 - Added on-demand, deterministic local lexical relevance suggestions from saved user notes, with exact matched terms and integer text-match scores.
