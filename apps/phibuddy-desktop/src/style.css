@@ -69,3 +69,15 @@ select{width:100%;color:#e8eef5;background:#162335;border:1px solid #304157;bord
 .evidence-meta,.evidence-hash{font-size:10px;color:#a5b8cc;overflow-wrap:anywhere;line-height:1.45;margin:0}
 .evidence-hash{font-family:ui-monospace,monospace}
 .evidence-snapshot{font:11px/1.5 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;overflow-y:auto;max-height:300px;background:#0b1c2b;padding:10px;border:1px solid #2a4257;border-radius:6px;margin:0}
+
+/* v0.9: explicit line-anchored quote review and single-turn selection. */
+.passage-composer{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:11px;color:#b8d5d7;padding:3px 0 10px}
+.passage-composer button,.queued-passage button{border:1px solid #375a6e;background:#172d42;color:#c4e7ea;padding:7px 9px;border-radius:7px;font-size:11px}
+.passage-picker{display:flex;flex-direction:column;gap:9px;border-top:1px solid #315469;margin-top:8px;padding-top:8px}
+.passage-range{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.passage-range label{display:flex;flex-direction:column;gap:5px}
+.passage-range input{width:100%;padding:7px;background:#0d2233;color:#d9ecf2;border:1px solid #345d70;border-radius:6px}
+.passage-exact-preview{border-left:2px solid #7ed1b7;padding:9px;background:#0c2931;display:flex;flex-direction:column;gap:8px}
+.passage-exact-preview strong{font-size:11px}
+.passage-exact-preview pre{max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.45 ui-monospace,monospace}
+.queued-passage{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:7px;background:#112f3a;border-radius:7px;font-size:10px}

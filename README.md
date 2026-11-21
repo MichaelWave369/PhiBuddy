@@ -58,7 +58,7 @@ The inspector distinguishes **unverified user notes** from **independently verif
 
 Read [Memory Discovery v0.7 design and acceptance](docs/MEMORY_DISCOVERY_V0.7.md). This is development source, not an installer or externally verified evidence system.
 
-## External Evidence Registry (v0.8 alpha, draft)
+## External Evidence Registry (v0.8)
 
 The desktop **Evidence** tab lets you explicitly retrieve UTF-8 plaintext from a small HTTPS source allowlist. Every local snapshot has a URL, source host, retrieval timestamp, and SHA-256 fingerprint, and is kept **separate** from user memory and chat history. Neither retrieval nor storage makes a document factually verified. Evidence snapshots are **not automatically shown to Ollama**, and no agent can invoke retrieval.
 
@@ -67,6 +67,14 @@ Supported inputs include `https://www.rfc-editor.org/rfc/rfc9111.txt` and a GitH
 Read [Evidence Registry v0.8 architecture and acceptance](docs/EVIDENCE_REGISTRY_V0.8.md). Review source only; not a release or a general web browser.
 
 Set `PHIBUDDY_DB_PATH` in your test shell to use an isolated SQLite database. A fresh clone by itself still shares the normal database path.
+
+## Evidence-backed reasoning: explicit source passages (v0.9 alpha, draft)
+
+The desktop can now **preview an exact range of lines from a previously saved external source**. You must separately choose **Attach this passage to next turn**. The core limits attachments to three passages and 6000 serialized context characters; selected passages never carry over to another message.
+
+For each affected turn, the inspector shows the quote reconstructed from the saved text, source URL, line range and SHA-256 fingerprint. Deleting or changing the source makes the original quote unavailable in the inspector. The event log retains source IDs and fingerprints without copying entire passages.
+
+This is an evidence *trace*, not independent fact checking: Buddy's interpretations are still AI-generated. See [Source Passage v0.9 guide](docs/SOURCE_PASSAGES_V0.9.md).
 
 ## Run the CLI on Windows 11
 

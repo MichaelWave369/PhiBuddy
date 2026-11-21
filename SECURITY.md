@@ -1,4 +1,4 @@
-# PhiBuddy security boundaries (v0.8 alpha)
+# PhiBuddy security boundaries (v0.9 alpha)
 
 PhiBuddy is a prototype, **not a vetted secure execution platform**. The active surfaces are a Rust CLI and Tauri desktop preview. Both call a local Ollama API and write **unencrypted** SQLite state. The desktop streams text but does not give models shell or GitHub execution permissions.
 
@@ -6,6 +6,9 @@ PhiBuddy is a prototype, **not a vetted secure execution platform**. The active 
 - Agents only generate text. Their proposals must never be mistaken for performed changes.
 - The Ollama endpoint argument is limited to localhost/loopback HTTP, but the separate Ollama process may have its own network settings. The app does not guarantee that all model side effects or configuration are offline.
 - Conversation history and raw per-agent drafts/criticisms are stored in SQLite unencrypted. Users control filesystem access and backup policy. `events --jsonl` may reveal sensitive local prompts if redirected or shared.
+- v0.9 allows explicitly selected excerpts from existing local evidence snapshots to be included as **untrusted data** in one model turn. Each passage is validated against the saved source SHA-256 and line range, limited to 1,600 characters, and the combined source context limited to 6,000 characters. Maximum three passages per turn. Models cannot initiate passage selection or fetching.
+- The new `source_passage_attached` event stores only snapshot ID, line range and fingerprint. The inspector re-resolves the saved snapshot; if it is deleted or its fingerprint changes, original quote contents become unavailable. Past model answers may still repeat source text, and older binaries may not understand the new event type.
+- A reproducible **source quote** is not a verified fact. The source can be wrong or malicious, model-generated citations may be false, and labeling sources as untrusted is not a complete prompt-injection defense. Independent claim validation is deliberately unimplemented.
 - v0.8 adds a desktop **user-initiated** HTTPS fetch for text files on allowlisted hosts `raw.githubusercontent.com` and `www.rfc-editor.org`. No agent-generated output triggers network requests. All other hosts, HTTP, redirects, unusual ports, query strings, URL credentials, HTML and oversized text responses are denied. Source URLs must be approved by the user in the desktop field.
 - Captured `external_evidence` snapshots are unencrypted SQLite data with local retrieval time and SHA-256 fingerprint. SHA-256 detects accidental content changes if recalculated, **not** publisher identity, semantic correctness, or resistance to malicious local DB edits. No authenticated signatures, independent cross-source verification, or factual claim checking exist.
 - The source allowlist is an initial risk reduction, not a proof of safety against compromised TLS trust, local host resolution, unsafe user input inside a source, or model prompt injection if future code starts adding external text to prompts. Neither the core nor the UI auto-attaches evidence records to model conversations.
