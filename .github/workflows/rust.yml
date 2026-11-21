@@ -18,18 +18,6 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --all
       - run: cargo fmt --all -- --check
-      - name: Temporary formatted-source validation export
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          paths = sorted(Path('.').rglob('*.rs'))
-          tree = [{"path": str(p).replace("\\", "/"), "mode": "100644", "type": "blob", "content": p.read_text(encoding="utf-8")} for p in paths]
-          print("PHIBUDDY_FMT_JSON=" + json.dumps(tree, ensure_ascii=True))
-          PY
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
