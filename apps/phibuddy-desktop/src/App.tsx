@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Channel, invoke } from "@tauri-apps/api/core";
 
 type Session = { id: string; mode: string; agent: string; created_at: string };
@@ -69,6 +69,8 @@ export default function App() {
   const [suggestedNotes, setSuggestedNotes] = useState<MemorySuggestion[]>([]);
   const [suggestedFor, setSuggestedFor] = useState("");
   const [suggesting, setSuggesting] = useState(false);
+  // Discard old async suggestions when a draft/session/memory changes.
+  const suggestionRequestRef = useRef(0);
   const [selectedTurn, setSelectedTurn] = useState<string | null>(null);
 
   const active = sessions.find((s) => s.id === activeId);
@@ -109,6 +111,8 @@ export default function App() {
 
   async function saveMemory() {
     if (busy || memoryBusy || !memoryDraft.trim()) return;
+    suggestionRequestRef.current += 1;
+    setSuggesting(false);
     setMemoryBusy(true);
     setMemoryError("");
     try {
@@ -129,6 +133,8 @@ export default function App() {
 
   async function deleteMemory(id: string) {
     if (busy || memoryBusy || pendingDelete !== id) return;
+    suggestionRequestRef.current += 1;
+    setSuggesting(false);
     setMemoryBusy(true);
     setMemoryError("");
     try {
@@ -158,19 +164,24 @@ export default function App() {
     if (busy || memoryBusy || suggesting) return;
     const query = prompt.trim();
     if (!query) return;
+    const requestId = ++suggestionRequestRef.current;
     setInspector("memory");
     setMemoryError("");
     setSuggesting(true);
     try {
       const found = await invoke<MemorySuggestion[]>("suggest_memories", { query });
-      setSuggestedNotes(found);
-      setSuggestedFor(query);
+      if (requestId === suggestionRequestRef.current) {
+        setSuggestedNotes(found);
+        setSuggestedFor(query);
+      }
     } catch (e) {
-      setSuggestedNotes([]);
-      setSuggestedFor("");
-      setMemoryError(errorText(e));
+      if (requestId === suggestionRequestRef.current) {
+        setSuggestedNotes([]);
+        setSuggestedFor("");
+        setMemoryError(errorText(e));
+      }
     } finally {
-      setSuggesting(false);
+      if (requestId === suggestionRequestRef.current) setSuggesting(false);
     }
   }
 
@@ -241,6 +252,8 @@ export default function App() {
 
   async function newSession() {
     if (busy || memoryBusy) return;
+    suggestionRequestRef.current += 1;
+    setSuggesting(false);
     setSelectedMemoryIds([]);
     setSuggestedNotes([]);
     setSuggestedFor("");
@@ -257,6 +270,8 @@ export default function App() {
 
   async function openSession(id: string) {
     if (busy || memoryBusy) return;
+    suggestionRequestRef.current += 1;
+    setSuggesting(false);
     setSelectedMemoryIds([]);
     setSuggestedNotes([]);
     setSuggestedFor("");
@@ -272,6 +287,8 @@ export default function App() {
     if (!activeId || !input || busy || memoryBusy) return;
     // Each message requires a fresh explicit choice; do not silently reuse notes.
     const memoryIds = [...selectedMemoryIds];
+    suggestionRequestRef.current += 1;
+    setSuggesting(false);
     setSelectedMemoryIds([]);
     setSuggestedNotes([]);
     setSuggestedFor("");
@@ -407,6 +424,8 @@ export default function App() {
           <label className="sr-only" htmlFor="prompt">Your message</label>
           <textarea id="prompt" rows={4} maxLength={20000} value={prompt}
             disabled={!active || busy} onChange={(e) => {
+              suggestionRequestRef.current += 1;
+              setSuggesting(false);
               setPrompt(e.target.value);
               setSuggestedNotes([]);
               setSuggestedFor("");
