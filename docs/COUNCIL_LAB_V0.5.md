@@ -22,6 +22,27 @@ Each case tests the *same prompt* against two isolated sessions, using the same 
 - Model-request counts (1 vs. 4 or 7), not token- or energy-normalized costs.
 - Which workflow ran first, the original question, case ID, and optional human reference.
 
+## Record and summarize human scores
+
+After inspecting the full JSONL answers, create a **separate** human rating file for the same IDs. Scores are subjective assessments on a 0–5 scale; this program does not invent or validate them. Example structure (the numbers below are illustrative, **not evaluation results**):
+
+```json
+{
+  "ratings": [
+    {"case_id":"arithmetic","solo_score":5,"council_score":5},
+    {"case_id":"design_tradeoff","solo_score":3,"council_score":4}
+  ]
+}
+```
+
+Then run:
+
+```powershell
+cargo run -p phibuddy -- eval-score --report council-quick.jsonl --ratings my-human-ratings.json
+```
+
+This prints mean Solo and Council ratings, the number of human-scored wins and ties, and `evidence_type: human_supplied_unverified`. Missing cases, repeated IDs, and scores outside 0–5 are errors, not silently excluded. This is an unblinded reviewer comparison, not an objective benchmark or a statistically significant result.
+
 ## What this does NOT establish
 
 - **No automatic accuracy score:** outputs require human review, objective unit tests, or a separately validated judge.

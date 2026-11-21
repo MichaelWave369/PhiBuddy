@@ -36,6 +36,7 @@ The CLI now supports `eval` for side-by-side Solo-versus-Council experiments and
 
 ```powershell
 cargo run -p phibuddy -- eval --cases docs/eval_suite_smoke.json --output council-quick.jsonl
+cargo run -p phibuddy -- eval-score --report council-quick.jsonl --ratings my-human-ratings.json
 cargo run -p phibuddy -- memory add --text "Be careful with unsupported claims" --source-ref "personal note"
 cargo run -p phibuddy -- memory list
 cargo run -p phibuddy -- memory search "claims"

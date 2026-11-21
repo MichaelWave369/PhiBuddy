@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 use phibuddy_core::{
     agents::{Agent, Mode},
     engine::{CouncilDepth, Engine},
-    evaluation::{evaluate_case, EvalOrder, EvalSuite},
+    evaluation::{evaluate_case, summarize_ratings, EvalOrder, EvalSuite, RatingSheet},
     store::Store,
     Message, ModelProvider, Result,
 };
@@ -87,6 +87,13 @@ enum Command {
         output: PathBuf,
         #[arg(long, default_value = "quick")]
         depth: String,
+    },
+    /// Summarize complete human ratings for a saved Council Lab report.
+    EvalScore {
+        #[arg(long)]
+        report: PathBuf,
+        #[arg(long)]
+        ratings: PathBuf,
     },
     /// Explicit user-managed notes; never automatically extracted by an agent.
     Memory {
@@ -254,12 +261,32 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    if let Command::EvalScore { report, ratings } = &cli.command {
+        let content = fs::read_to_string(report)?;
+        let mut case_ids = Vec::new();
+        for line in content.lines().filter(|line| !line.trim().is_empty()) {
+            let row: serde_json::Value = serde_json::from_str(line)?;
+            let case_id = row
+                .get("evaluation")
+                .and_then(|value| value.get("case_id"))
+                .and_then(serde_json::Value::as_str)
+                .ok_or("report row is missing evaluation.case_id")?;
+            case_ids.push(case_id.to_string());
+        }
+        let sheet: RatingSheet = serde_json::from_str(&fs::read_to_string(ratings)?)?;
+        let summary = summarize_ratings(&case_ids, &sheet)?;
+        println!("{}", serde_json::to_string_pretty(&summary)?);
+        return Ok(());
+    }
+
     let provider = Ollama::new(&cli.endpoint, cli.model)?;
     let store = Store::open(cli.db.unwrap_or_else(default_db))?;
     let mut engine = Engine::new(provider, store);
 
     match cli.command {
-        Command::Eval { .. } => unreachable!("eval handled before persistent store initialization"),
+        Command::Eval { .. } | Command::EvalScore { .. } => {
+            unreachable!("evaluation commands are handled before database initialization")
+        },
         Command::Memory { action } => match action {
             MemoryCommand::Add { text, source_ref } => {
                 let entry = engine
