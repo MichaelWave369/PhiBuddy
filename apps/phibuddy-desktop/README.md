@@ -1,4 +1,4 @@
-# PhiBuddy Desktop v0.3 preview
+# PhiBuddy Desktop v0.6 source alpha
 
 A Tauri 2 + React workbench built on the existing `phibuddy-core` Rust library.
 
@@ -39,7 +39,13 @@ npm run desktop
 - Rust core: from repository root, `cargo test --workspace`.
 - Manual: launch Ollama, start a Quick Council turn, verify three independent draft cards and one synthesis; repeat with Debate (three critiques). Close and reopen, confirm history and events persist.
 
-**Security:** Only six explicit Tauri commands are registered. Agent responses are plain text and are not executed or rendered as HTML. The capability manifest grants only Tauri core APIs. The local Ollama endpoint is hardcoded to `127.0.0.1:11434`. Tool execution remains absent.
+**Security:** Eleven narrow Tauri commands are registered. Agent responses are plain text and are not executed or rendered as HTML. The capability manifest grants only Tauri core APIs. The local Ollama endpoint is hardcoded to `127.0.0.1:11434`. Tool execution remains absent.
+
+## Memory Workshop v0.6
+
+Open the **Memory** inspector tab to add, search and delete user-owned notes. Check notes to attach them to **only the next turn**. Attached note IDs appear in the Council inspector, resolved to the current local SQLite note content and user-supplied source labels. **No note is automatically extracted or included.** Notes are unverified user data. The context budget is five notes / 6,000 characters.
+
+See [the v0.6 safety boundaries and acceptance checklist](../../docs/MEMORY_WORKSHOP_V0.6.md). Changes are not a production release and remain subject to actual Windows/Ollama verification.
 
 ## Streaming v0.4 acceptance
 

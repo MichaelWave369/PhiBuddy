@@ -8,6 +8,12 @@ type Event = {
   turn_id: string; kind: string; actor: string | null;
   content: string; created_at: string;
 };
+type MemoryRecord = {
+  id: string; content: string; source_kind: string;
+  source_ref: string | null; created_at: string;
+};
+type TurnMemoryRef = { id: string; memory: MemoryRecord | null };
+
 type Agent = "buddy" | "homie" | "dude";
 type Mode = "solo" | "council" | "workshop";
 type Depth = "quick" | "debate";
@@ -40,7 +46,18 @@ export default function App() {
   const [liveOutput, setLiveOutput] = useState("");
   const [error, setError] = useState("");
   const [status, setStatus] = useState("Checking Ollama…");
-  const [inspector, setInspector] = useState<"events" | "contributions">("contributions");
+  const [inspector, setInspector] = useState<"events" | "contributions" | "memory">("contributions");
+  const [memories, setMemories] = useState<MemoryRecord[]>([]);
+  const [memorySearch, setMemorySearch] = useState("");
+  const [memoryDraft, setMemoryDraft] = useState("");
+  const [memorySource, setMemorySource] = useState("");
+  const [memoryError, setMemoryError] = useState("");
+  const [memoryBusy, setMemoryBusy] = useState(false);
+  const [selectedMemoryIds, setSelectedMemoryIds] = useState<string[]>([]);
+  const [activeMemoryCount, setActiveMemoryCount] = useState(0);
+  const [turnMemoryRefs, setTurnMemoryRefs] = useState<TurnMemoryRef[]>([]);
+  const [memoryRevision, setMemoryRevision] = useState(0);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [selectedTurn, setSelectedTurn] = useState<string | null>(null);
 
   const active = sessions.find((s) => s.id === activeId);
@@ -64,6 +81,63 @@ export default function App() {
     setMessages(chat);
     setEvents(log);
     setSelectedTurn(log.length ? log[log.length - 1].turn_id : null);
+  }
+
+  async function loadMemories(query = "") {
+    const result = await invoke<MemoryRecord[]>("list_memories", {
+      query: query.trim() || null,
+    });
+    setMemories(result);
+  }
+
+  async function refreshMemories() {
+    setMemoryError("");
+    try { await loadMemories(memorySearch); }
+    catch (e) { setMemoryError(errorText(e)); }
+  }
+
+  async function saveMemory() {
+    if (busy || memoryBusy || !memoryDraft.trim()) return;
+    setMemoryBusy(true);
+    setMemoryError("");
+    try {
+      await invoke<MemoryRecord>("save_memory", {
+        content: memoryDraft.trim(),
+        sourceRef: memorySource.trim() || null,
+      });
+      setMemoryDraft("");
+      setMemorySource("");
+      setMemorySearch("");
+      await loadMemories();
+      setMemoryRevision((n) => n + 1);
+    } catch (e) { setMemoryError(errorText(e)); }
+    finally { setMemoryBusy(false); }
+  }
+
+  async function deleteMemory(id: string) {
+    if (busy || memoryBusy || pendingDelete !== id) return;
+    setMemoryBusy(true);
+    setMemoryError("");
+    try {
+      await invoke<boolean>("delete_memory", { memoryId: id });
+      setSelectedMemoryIds((ids) => ids.filter((value) => value !== id));
+      setPendingDelete(null);
+      await loadMemories(memorySearch);
+      setMemoryRevision((n) => n + 1);
+    } catch (e) { setMemoryError(errorText(e)); }
+    finally { setMemoryBusy(false); }
+  }
+
+  function toggleMemory(id: string) {
+    if (busy || memoryBusy) return;
+    if (!selectedMemoryIds.includes(id) && selectedMemoryIds.length >= 5) {
+      setMemoryError("At most five notes may be attached to one turn.");
+      return;
+    }
+    setMemoryError("");
+    setSelectedMemoryIds((ids) =>
+      ids.includes(id) ? ids.filter((value) => value !== id) : [...ids, id]
+    );
   }
 
   async function reloadSessions() {
@@ -106,8 +180,34 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
+  // Memory management works even when Ollama is offline.
+  useEffect(() => {
+    void loadMemories().catch((e) => setMemoryError(errorText(e)));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeId || !inspectedTurn) {
+      setTurnMemoryRefs([]);
+      return;
+    }
+    void invoke<TurnMemoryRef[]>("get_turn_memories", {
+      sessionId: activeId,
+      turnId: inspectedTurn,
+    }).then((items) => {
+      if (!cancelled) setTurnMemoryRefs(items);
+    }).catch((e) => {
+      if (!cancelled) {
+        setTurnMemoryRefs([]);
+        setMemoryError(errorText(e));
+      }
+    });
+    return () => { cancelled = true; };
+  }, [activeId, inspectedTurn, events, memoryRevision]);
+
   async function newSession() {
-    if (busy) return;
+    if (busy || memoryBusy) return;
+    setSelectedMemoryIds([]);
     setError("");
     try {
       const session = await invoke<Session>("create_session", { mode, agent });
@@ -120,7 +220,8 @@ export default function App() {
   }
 
   async function openSession(id: string) {
-    if (busy) return;
+    if (busy || memoryBusy) return;
+    setSelectedMemoryIds([]);
     setError("");
     try {
       await loadSession(id);
@@ -130,7 +231,11 @@ export default function App() {
 
   async function submit() {
     const input = prompt.trim();
-    if (!activeId || !input || busy) return;
+    if (!activeId || !input || busy || memoryBusy) return;
+    // Each message requires a fresh explicit choice; do not silently reuse notes.
+    const memoryIds = [...selectedMemoryIds];
+    setSelectedMemoryIds([]);
+    setActiveMemoryCount(memoryIds.length);
     setBusy(true);
     setCancelRequested(false);
     setCurrentStage("Preparing model…");
@@ -148,7 +253,9 @@ export default function App() {
       }
     };
     try {
-      await invoke("send_prompt", { sessionId: activeId, input, depth, onProgress });
+      await invoke("send_prompt", {
+        sessionId: activeId, input, depth, memoryIds, onProgress,
+      });
       setPrompt("");
       await loadSession(activeId);
       await reloadSessions();
@@ -162,6 +269,7 @@ export default function App() {
       setBusy(false);
       setCancelRequested(false);
       setCurrentStage("");
+      setActiveMemoryCount(0);
     }
   }
 
@@ -231,7 +339,7 @@ export default function App() {
             <section className="live-reply" aria-label="Current AI generation">
               <div className="message-label" role="status">{currentStage || "Crew working…"}</div>
               <div className="message-body" aria-live="off">{liveOutput || "Waiting for the first token…"}</div>
-              <p className="hint">Live Ollama output · One agent at a time · Not saved as a completed answer until the turn succeeds</p>
+              <p className="hint">Live Ollama output · {activeMemoryCount} explicitly attached notes · Incomplete turns are not saved as chat replies</p>
             </section>
           )}
         </section>
@@ -242,6 +350,15 @@ export default function App() {
               <option value="debate">Debate · 7 model calls</option>
             </select>
           </label>}
+          <div className="memory-composer">
+            <span>{selectedMemoryIds.length > 0
+              ? `${selectedMemoryIds.length} note(s) selected for the next turn`
+              : "No memory notes attached by default"}</span>
+            <button type="button" disabled={busy || memoryBusy}
+              onClick={() => setInspector("memory")}>Choose notes</button>
+            {selectedMemoryIds.length > 0 && <button type="button" disabled={busy}
+              onClick={() => setSelectedMemoryIds([])}>Clear</button>}
+          </div>
           {error && <div className="error" role="alert">{error}</div>}
           <label className="sr-only" htmlFor="prompt">Your message</label>
           <textarea id="prompt" rows={4} maxLength={20000} value={prompt}
@@ -257,7 +374,8 @@ export default function App() {
       </main>
 
       <aside className="inspector">
-        <div className="inspector-head"><h2>Council inspector</h2><small>Actual recorded outputs</small></div>
+        <div className="inspector-head"><h2>Workshop inspector</h2>
+          <small>Agent evidence and user-controlled memory</small></div>
         <div className="tabs" role="tablist" aria-label="Inspector views">
           <button role="tab" aria-selected={inspector === "contributions"}
             className={inspector === "contributions" ? "active" : ""}
@@ -265,13 +383,82 @@ export default function App() {
           <button role="tab" aria-selected={inspector === "events"}
             className={inspector === "events" ? "active" : ""}
             onClick={() => setInspector("events")}>Timeline</button>
+          <button role="tab" aria-selected={inspector === "memory"}
+            className={inspector === "memory" ? "active" : ""}
+            onClick={() => setInspector("memory")}>Memory</button>
         </div>
-        {turns.length > 0 && <label className="turn-select">Turn
+        {inspector !== "memory" && turns.length > 0 && <label className="turn-select">Turn
           <select value={inspectedTurn ?? ""} onChange={(e) => setSelectedTurn(e.target.value)}>
             {turns.map((t, i) => <option key={t} value={t}>Turn {turns.length - i} · {t.slice(0, 8)}</option>)}
           </select></label>}
         <div className="inspector-scroll">
-          {inspector === "contributions" ? (
+          {inspector === "memory" ? (
+            <section className="memory-workshop">
+              <p className="hint">Notes are saved only when you ask. Check specific notes to attach them to the <strong>next</strong> message. Sources are user-supplied, not independently verified.</p>
+              {memoryError && <p className="error" role="alert">{memoryError}</p>}
+              <label htmlFor="memory-draft">New memory note</label>
+              <textarea id="memory-draft" value={memoryDraft} maxLength={4096} rows={3}
+                disabled={busy || memoryBusy}
+                onChange={(e) => setMemoryDraft(e.target.value)}
+                placeholder="A fact, preference, or design decision to save explicitly…" />
+              <label htmlFor="memory-source">Source label (optional)</label>
+              <input id="memory-source" value={memorySource} maxLength={1024}
+                disabled={busy || memoryBusy}
+                onChange={(e) => setMemorySource(e.target.value)}
+                placeholder="e.g. my project notes · 2026-11" />
+              <button className="primary wide" disabled={busy || memoryBusy || !memoryDraft.trim()}
+                onClick={() => void saveMemory()}>Save this note</button>
+              <div className="memory-search">
+                <label htmlFor="memory-query">Find notes</label>
+                <input id="memory-query" value={memorySearch} maxLength={1024}
+                  disabled={busy || memoryBusy}
+                  onChange={(e) => setMemorySearch(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") void refreshMemories(); }}
+                  placeholder="Search text (literal match)" />
+                <button type="button" disabled={busy || memoryBusy}
+                  onClick={() => void refreshMemories()}>Search / show recent</button>
+              </div>
+              <p className="hint">{memories.length} note(s) shown · {selectedMemoryIds.length}/5 selected · At most 100 results</p>
+              {memories.map((note) => (
+                <article className="memory-note" key={note.id}>
+                  <label className="memory-note-select">
+                    <input type="checkbox" checked={selectedMemoryIds.includes(note.id)}
+                      disabled={busy || memoryBusy} onChange={() => toggleMemory(note.id)} />
+                    <strong>Attach next turn</strong>
+                  </label>
+                  <div className="memory-note-body">{note.content}</div>
+                  <div className="memory-source-label">User note · {note.source_ref || "No source label"} · {note.created_at}</div>
+                  <small className="memory-id">ID: {note.id}</small>
+                  {pendingDelete === note.id ? (
+                    <div className="delete-actions">
+                      <span>Delete from active ledger?</span>
+                      <button type="button" className="cancel" disabled={busy || memoryBusy}
+                        onClick={() => void deleteMemory(note.id)}>Confirm delete</button>
+                      <button type="button" disabled={memoryBusy}
+                        onClick={() => setPendingDelete(null)}>Keep</button>
+                    </div>
+                  ) : <button type="button" className="delete-memory" disabled={busy || memoryBusy}
+                    onClick={() => setPendingDelete(note.id)}>Delete note</button>}
+                </article>
+              ))}
+              {memories.length === 0 && <p className="hint">No notes found. Save one above to begin.</p>}
+            </section>
+          ) : (
+            <>
+              {turnMemoryRefs.length > 0 && <section className="turn-sources">
+                <h3>Notes attached to this turn</h3>
+                <p className="hint">Selected user notes, not verified citations. The model may or may not have relied on them.</p>
+                {turnMemoryRefs.map((item) => (
+                  <article className="source-record" key={item.id}>
+                    <div className="memory-source-label">{item.memory
+                      ? `User note · ${item.memory.source_ref || "No source label"}`
+                      : "Note no longer in active ledger"}</div>
+                    <div className="memory-note-body">{item.memory?.content ?? "(Content unavailable after deletion)"}</div>
+                    <small className="memory-id">{item.id}</small>
+                  </article>
+                ))}
+              </section>}
+              {inspector === "contributions" ? (
             contributions.length ? contributions.map((e) =>
               <article className="evidence" key={e.sequence}>
                 <div className="evidence-label">{e.actor ?? "system"} · {e.kind.replaceAll("_", " ")}</div>
@@ -284,8 +471,10 @@ export default function App() {
               <div><strong>{e.kind.replaceAll("_", " ")}</strong><small>{e.actor ?? "system"} · {e.created_at}</small></div>
             </article>
           ) : <p className="hint">No recorded events for this session yet.</p>}
+            </>
+          )}
         </div>
-        <footer className="inspector-foot">Recorded events are evidence of model output, not proof that its claims are true.</footer>
+        <footer className="inspector-foot">Memory is opt-in per turn. Attachments are audited by ID, not copied to the event log. Deleted notes may still appear in generated answers or backups.</footer>
       </aside>
     </div>
   );

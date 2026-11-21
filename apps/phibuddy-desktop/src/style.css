@@ -23,3 +23,24 @@ select{width:100%;color:#e8eef5;background:#162335;border:1px solid #304157;bord
 .live-reply .hint{margin:12px 0 0}
 .cancel{border:1px solid #b37373;background:#3a222a;color:#ffdddb;border-radius:8px;padding:11px 15px;font-weight:650}
 .cancel:hover:not(:disabled){background:#54303a}
+
+/* Memory Workshop: explicit source labels and per-turn user consent. */
+.memory-composer{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:7px 0 12px;color:#a4cabb;font-size:12px}
+.memory-composer button,.memory-search button,.delete-actions button:not(.cancel){border:1px solid #38576c;background:#192b3d;color:#c6e8e0;border-radius:7px;padding:7px 10px}
+.memory-workshop{display:flex;flex-direction:column;gap:10px}
+.memory-workshop label:not(.memory-note-select){font-size:11px;color:#afc6d7;display:block}
+.memory-workshop textarea,.memory-workshop input:not([type="checkbox"]){width:100%;background:#111f2f;border:1px solid #35516a;color:#e8f3f7;border-radius:8px;padding:10px;font:inherit;font-size:12px}
+.memory-workshop textarea{resize:vertical}
+.memory-search{border-top:1px solid #2b3d50;padding-top:14px;margin-top:10px;display:flex;flex-direction:column;gap:8px}
+.memory-note,.source-record{padding:13px;border:1px solid #345469;border-radius:10px;background:#112235;overflow-wrap:anywhere}
+.memory-note-select{display:flex;gap:8px;align-items:center;font-size:12px;color:#8de5cc;cursor:pointer}
+.memory-note-select input{accent-color:#6de1ba}
+.memory-note-body{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;font-size:12px;margin:8px 0}
+.memory-source-label{color:#99bdc6;font-size:11px;line-height:1.4}
+.memory-id{display:block;font-size:9px;color:#7895aa;overflow-wrap:anywhere;margin:5px 0}
+.delete-memory{border:0;background:transparent;color:#dda6ac;font-size:11px;padding:5px 0;text-decoration:underline}
+.delete-actions{display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin-top:8px;font-size:11px;color:#ffd8d4}
+.delete-actions .cancel{font-size:11px;padding:7px 10px}
+.turn-sources{border-bottom:1px solid #2c4153;padding-bottom:14px;margin-bottom:15px}
+.turn-sources h3{font-size:13px;color:#a2ebd7;margin:0 0 7px}
+.source-record{margin-bottom:8px}
