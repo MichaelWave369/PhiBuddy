@@ -275,6 +275,23 @@ fn delete_memory(state: State<'_, DesktopState>, memory_id: String) -> Result<bo
 
 /// The event log records only note IDs. Resolve the labels and content from
 /// the current ledger, so a deleted note is not recreated by the inspector.
+fn resolve_turn_memories(
+    store: &Store,
+    session_id: &str,
+    turn_id: &str,
+) -> Result<Vec<TurnMemoryRef>, String> {
+    if store.get_session(session_id).map_err(|e| e.to_string())?.is_none() {
+        return Err("unknown session ID".into());
+    }
+    let events = store.events(session_id).map_err(|e| e.to_string())?;
+    events.into_iter().filter(|event| {
+        event.turn_id == turn_id && event.kind == EventKind::MemoryAttached
+    }).map(|event| {
+        let memory = store.get_memory(&event.content).map_err(|e| e.to_string())?;
+        Ok(TurnMemoryRef { id: event.content, memory })
+    }).collect()
+}
+
 #[tauri::command]
 fn get_turn_memories(
     state: State<'_, DesktopState>,
@@ -282,16 +299,7 @@ fn get_turn_memories(
     turn_id: String,
 ) -> Result<Vec<TurnMemoryRef>, String> {
     let engine = state.engine.lock().map_err(|_| "engine lock poisoned".to_string())?;
-    if engine.store().get_session(&session_id).map_err(|e| e.to_string())?.is_none() {
-        return Err("unknown session ID".into());
-    }
-    let events = engine.store().events(&session_id).map_err(|e| e.to_string())?;
-    events.into_iter().filter(|event| {
-        event.turn_id == turn_id && event.kind == EventKind::MemoryAttached
-    }).map(|event| {
-        let memory = engine.store().get_memory(&event.content).map_err(|e| e.to_string())?;
-        Ok(TurnMemoryRef { id: event.content, memory })
-    }).collect()
+    resolve_turn_memories(engine.store(), &session_id, &turn_id)
 }
 
 #[tauri::command]
@@ -392,9 +400,36 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{read_stream, validate_model_name};
-    use phibuddy_core::progress::CancelFlag;
+    use super::{read_stream, resolve_turn_memories, validate_model_name};
+    use phibuddy_core::{
+        agents::{Agent, Mode},
+        progress::CancelFlag,
+        store::{EventKind, Store},
+    };
     use std::sync::atomic::Ordering;
+
+    #[test]
+    fn turn_source_inspector_respects_memory_deletion() {
+        let store = Store::in_memory().unwrap();
+        let session = store.create_session(Mode::Solo, Agent::Buddy).unwrap();
+        let note = store.remember_manual("Private test note", Some("user note")).unwrap();
+        let turn_id = Store::new_turn_id();
+        store.append_event(
+            &session.id, &turn_id, EventKind::MemoryAttached, None, &note.id,
+        ).unwrap();
+        let attached = resolve_turn_memories(&store, &session.id, &turn_id).unwrap();
+        assert_eq!(attached.len(), 1);
+        assert_eq!(attached[0].memory.as_ref().unwrap().content, "Private test note");
+        assert_eq!(attached[0].id, note.id);
+        assert!(store.forget_memory(&note.id).unwrap());
+        let deleted = resolve_turn_memories(&store, &session.id, &turn_id).unwrap();
+        assert_eq!(deleted.len(), 1);
+        assert!(deleted[0].memory.is_none());
+        assert!(!store.events(&session.id).unwrap().iter().any(
+            |e| e.content.contains("Private test note")
+        ));
+        assert!(resolve_turn_memories(&store, "another-session", &turn_id).is_err());
+    }
 
     #[test]
     fn streamed_ndjson_preserves_order_and_complete_text() {
