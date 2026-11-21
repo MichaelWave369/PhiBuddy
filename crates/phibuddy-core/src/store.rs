@@ -86,6 +86,7 @@ fn read_memory_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryRecord> {
 pub enum EventKind {
     TurnStarted,
     MemoryAttached,
+    SourcePassageAttached,
     AgentDraft,
     AgentCritique,
     Synthesis,
@@ -104,6 +105,7 @@ impl EventKind {
         match self {
             Self::TurnStarted => "turn_started",
             Self::MemoryAttached => "memory_attached",
+            Self::SourcePassageAttached => "source_passage_attached",
             Self::AgentDraft => "agent_draft",
             Self::AgentCritique => "agent_critique",
             Self::Synthesis => "synthesis",
@@ -125,6 +127,7 @@ impl FromStr for EventKind {
         match s {
             "turn_started" => Ok(Self::TurnStarted),
             "memory_attached" => Ok(Self::MemoryAttached),
+            "source_passage_attached" => Ok(Self::SourcePassageAttached),
             "agent_draft" => Ok(Self::AgentDraft),
             "agent_critique" => Ok(Self::AgentCritique),
             "synthesis" => Ok(Self::Synthesis),

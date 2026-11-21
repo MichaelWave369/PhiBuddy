@@ -6,6 +6,7 @@ pub mod engine;
 pub mod evaluation;
 pub mod memory_discovery;
 pub mod progress;
+pub mod evidence_passages;
 pub mod store;
 
 pub type BuddyError = Box<dyn std::error::Error + Send + Sync>;
