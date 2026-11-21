@@ -68,13 +68,19 @@ Read [Evidence Registry v0.8 architecture and acceptance](docs/EVIDENCE_REGISTRY
 
 Set `PHIBUDDY_DB_PATH` in your test shell to use an isolated SQLite database. A fresh clone by itself still shares the normal database path.
 
-## Evidence-backed reasoning: explicit source passages (v0.9 alpha, draft)
+## Evidence-backed reasoning: explicit source passages (v0.9)
 
 The desktop can now **preview an exact range of lines from a previously saved external source**. You must separately choose **Attach this passage to next turn**. The core limits attachments to three passages and 6000 serialized context characters; selected passages never carry over to another message.
 
 For each affected turn, the inspector shows the quote reconstructed from the saved text, source URL, line range and SHA-256 fingerprint. Deleting or changing the source makes the original quote unavailable in the inspector. The event log retains source IDs and fingerprints without copying entire passages.
 
 This is an evidence *trace*, not independent fact checking: Buddy's interpretations are still AI-generated. See [Source Passage v0.9 guide](docs/SOURCE_PASSAGES_V0.9.md).
+
+## Claim Support Lab (v1.0 alpha, draft)
+
+**Claim Support Lab** lets you paste one claim from a model answer and compare it against the exact external passages **actually attached to that turn**. It reports direct text occurrence, overlap-only, no textual match, or missing/changed evidence. The action is entirely local and read-only: no model judging, network call, autonomous research, write to SQLite, or fabricated truth verdict.
+
+A text match is not factual entailment. The lab cannot determine whether a source's claims are true or whether a paraphrased inference is correct. See [Claim Support Lab design and acceptance](docs/CLAIM_SUPPORT_LAB_V1.0.md).
 
 ## Run the CLI on Windows 11
 
