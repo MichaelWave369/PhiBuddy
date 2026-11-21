@@ -308,6 +308,17 @@ impl<P: ModelProvider> Engine<P> {
                 return Err(err);
             }
         };
+        // The user may cancel after the final model chunk but before commit.
+        if let Err(err) = check_cancel(cancel) {
+            self.store.append_event(
+                &session.id,
+                &turn_id,
+                EventKind::TurnCancelled,
+                None,
+                &err.to_string(),
+            )?;
+            return Err(err);
+        }
         let old_style_contributions = contributions
             .iter()
             .map(|c| (c.agent, c.text.clone()))
@@ -569,6 +580,34 @@ mod tests {
         assert!(updates
             .iter()
             .any(|event| matches!(event, TurnProgress::Delta { .. })));
+    }
+
+    #[test]
+    fn cancellation_after_stage_finish_still_prevents_chat_commit() {
+        let mut engine = engine();
+        let session = engine
+            .store()
+            .create_session(Mode::Solo, Agent::Buddy)
+            .unwrap();
+        let cancel = CancelFlag::new(false);
+        assert!(engine
+            .run_observed(
+                &session,
+                "last moment cancellation",
+                CouncilDepth::Quick,
+                &cancel,
+                &mut |event| {
+                    if matches!(event, TurnProgress::StageFinished { .. }) {
+                        cancel.store(true, std::sync::atomic::Ordering::Release);
+                    }
+                },
+            )
+            .is_err());
+        let events = engine.store().events(&session.id).unwrap();
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[1].kind, EventKind::SoloAnswer);
+        assert_eq!(events[2].kind, EventKind::TurnCancelled);
+        assert!(engine.store().conversation(&session.id).unwrap().is_empty());
     }
 
     #[test]
