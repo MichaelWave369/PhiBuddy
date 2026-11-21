@@ -10,17 +10,25 @@
     "beforeBuildCommand": "npm run build"
   },
   "app": {
-    "windows": [{
-      "label": "main",
-      "title": "PhiBuddy | Buddy, Homie & Dude",
-      "width": 1250,
-      "height": 800,
-      "minWidth": 860,
-      "minHeight": 600
-    }],
+    "windows": [
+      {
+        "label": "main",
+        "title": "PhiBuddy | Buddy, Homie & Dude",
+        "width": 1250,
+        "height": 800,
+        "minWidth": 860,
+        "minHeight": 600
+      }
+    ],
     "security": {
       "csp": "default-src 'self'; img-src 'self' data: asset:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
     }
   },
-  "bundle": { "active": false }
+  "bundle": {
+    "active": false,
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ]
+  }
 }
