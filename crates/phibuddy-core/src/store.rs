@@ -51,6 +51,7 @@ fn read_memory_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryRecord> {
 #[serde(rename_all = "snake_case")]
 pub enum EventKind {
     TurnStarted,
+    MemoryAttached,
     AgentDraft,
     AgentCritique,
     Synthesis,
@@ -68,6 +69,7 @@ impl EventKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::TurnStarted => "turn_started",
+            Self::MemoryAttached => "memory_attached",
             Self::AgentDraft => "agent_draft",
             Self::AgentCritique => "agent_critique",
             Self::Synthesis => "synthesis",
@@ -88,6 +90,7 @@ impl FromStr for EventKind {
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
             "turn_started" => Ok(Self::TurnStarted),
+            "memory_attached" => Ok(Self::MemoryAttached),
             "agent_draft" => Ok(Self::AgentDraft),
             "agent_critique" => Ok(Self::AgentCritique),
             "synthesis" => Ok(Self::Synthesis),
