@@ -81,3 +81,12 @@ select{width:100%;color:#e8eef5;background:#162335;border:1px solid #304157;bord
 .passage-exact-preview strong{font-size:11px}
 .passage-exact-preview pre{max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.45 ui-monospace,monospace}
 .queued-passage{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:7px;background:#112f3a;border-radius:7px;font-size:10px}
+
+/* v1.0 Claim Support Lab: read-only, local textual comparisons. */
+.claim-support-panel{display:flex;flex-direction:column;gap:9px;padding:14px 0;border-block:1px solid #2c475a;margin:14px 0}
+.claim-support-panel h3{color:#9be5d3;margin:0;font-size:13px}
+.claim-support-panel label{color:#bad4dd;font-size:11px}
+.claim-support-panel textarea{background:#0d2233;border:1px solid #36566f;border-radius:8px;color:#eaf2f5;padding:10px;font:12px/1.5 inherit;resize:vertical;width:100%}
+.claim-review-results{display:flex;flex-direction:column;gap:9px}
+.claim-finding{background:#132c3b;border:1px solid #35556c;border-radius:9px;display:flex;flex-direction:column;gap:7px;padding:11px;overflow-wrap:anywhere}
+.claim-finding strong{color:#d9e8ef;font-size:12px}
