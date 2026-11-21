@@ -212,7 +212,9 @@ impl<P: ModelProvider> Engine<P> {
                     EventKind::SoloAnswer,
                     history,
                     input,
-                , cancel, on_progress)?;
+                    cancel,
+                    on_progress,
+                )?;
                 Ok((response.text, Vec::new()))
             }
             Mode::Council => {
@@ -255,7 +257,9 @@ impl<P: ModelProvider> Engine<P> {
                     EventKind::Synthesis,
                     history,
                     &prompt,
-                , cancel, on_progress)?;
+                    cancel,
+                    on_progress,
+                )?;
                 Ok((synthesis.text, contributions))
             }
             Mode::Workshop => {
