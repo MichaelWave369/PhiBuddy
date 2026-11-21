@@ -4,6 +4,7 @@ use std::{fs, path::Path, str::FromStr};
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::{
@@ -341,6 +342,12 @@ impl Store {
             || !content_sha256.bytes().all(|b| b.is_ascii_hexdigit())
         {
             return Err("external evidence fields failed size or integrity-format checks".into());
+        }
+        // Reject mismatched fingerprints rather than storing a plausible
+        // looking but incorrect hash beside an external document.
+        let computed_sha256 = format!("{:x}", Sha256::digest(content.as_bytes()));
+        if computed_sha256 != content_sha256 {
+            return Err("external evidence SHA-256 does not match captured text".into());
         }
         let id = Uuid::new_v4().to_string();
         self.conn.execute(
@@ -698,7 +705,7 @@ mod tests {
             "https://www.rfc-editor.org/rfc/rfc9111.txt",
             "www.rfc-editor.org",
             "text/plain",
-            &"a".repeat(64),
+            &format!("{:x}", Sha256::digest(b"RFC example body")),
             "RFC example body",
         ).unwrap();
         assert_eq!(record.status, "retrieved_not_fact_checked");
@@ -709,6 +716,43 @@ mod tests {
         assert!(store.delete_external_evidence(&record.id).unwrap());
         assert!(store.get_external_evidence(&record.id).unwrap().is_none());
         assert!(!store.delete_external_evidence(&record.id).unwrap());
+    }
+
+    #[test]
+    fn evidence_fingerprint_mismatch_is_rejected_and_snapshot_survives_reopen() {
+        let path = std::env::temp_dir().join(format!(
+            "phibuddy-evidence-{}.sqlite3", Uuid::new_v4()
+        ));
+        let id = {
+            let store = Store::open(&path).unwrap();
+            assert!(store.record_external_evidence(
+                "https://www.rfc-editor.org/rfc/rfc9111.txt",
+                "www.rfc-editor.org",
+                "text/plain",
+                &"0".repeat(64),
+                "A verified byte string",
+            ).is_err());
+            store.record_external_evidence(
+                "https://www.rfc-editor.org/rfc/rfc9111.txt",
+                "www.rfc-editor.org",
+                "text/plain",
+                &format!("{:x}", Sha256::digest(b"Example source text")),
+                "Example source text",
+            ).unwrap().id
+        };
+        {
+            let store = Store::open(&path).unwrap();
+            let snapshot = store.get_external_evidence(&id).unwrap().unwrap();
+            assert_eq!(snapshot.content, "Example source text");
+            assert!(store.delete_external_evidence(&id).unwrap());
+        }
+        {
+            let store = Store::open(&path).unwrap();
+            assert!(store.get_external_evidence(&id).unwrap().is_none());
+        }
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite3-wal"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite3-shm"));
     }
 
     #[test]
