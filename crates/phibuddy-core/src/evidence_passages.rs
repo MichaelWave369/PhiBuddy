@@ -131,7 +131,7 @@ mod tests {
         let passage = preview_passage(&store, &selection).unwrap();
         assert_eq!(passage.quote, "alpha\r\nbeta\r");
         assert_eq!(passage.status, "retrieved_not_fact_checked");
-        let (context, anchors) = selected_passage_context(&store, &[selection.clone()])
+        let (context, anchors) = selected_passage_context(&store, std::slice::from_ref(&selection))
             .unwrap()
             .unwrap();
         assert_eq!(anchors.len(), 1);
