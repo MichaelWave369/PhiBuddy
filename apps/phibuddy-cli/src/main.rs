@@ -116,9 +116,7 @@ enum MemoryCommand {
         limit: usize,
     },
     /// Delete a note from the active SQLite table by ID.
-    Forget {
-        id: String,
-    },
+    Forget { id: String },
 }
 
 struct Ollama {
@@ -213,19 +211,29 @@ fn default_db() -> PathBuf {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    if let Command::Eval { cases, output, depth } = &cli.command {
+    if let Command::Eval {
+        cases,
+        output,
+        depth,
+    } = &cli.command
+    {
         let suite: EvalSuite = serde_json::from_str(&fs::read_to_string(cases)?)?;
         suite.validate()?;
         let depth = CouncilDepth::from_str(depth)?;
         if cli.model.to_ascii_lowercase().contains("cloud") {
-            return Err("Council Lab requires a local Ollama model name; cloud tags are disabled".into());
+            return Err(
+                "Council Lab requires a local Ollama model name; cloud tags are disabled".into(),
+            );
         }
         // Evaluation never writes test conversations into the user's history DB.
         let provider = Ollama::new(&cli.endpoint, cli.model.clone())?;
         let mut lab = Engine::new(provider, Store::in_memory()?);
         // An existing report is never silently overwritten. If Ollama fails midway,
         // completed JSONL case records remain recoverable.
-        let mut writer = OpenOptions::new().write(true).create_new(true).open(output)?;
+        let mut writer = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(output)?;
         for (index, case) in suite.cases.iter().enumerate() {
             let order = if index % 2 == 0 {
                 EvalOrder::SoloFirst
@@ -252,30 +260,30 @@ fn main() -> Result<()> {
 
     match cli.command {
         Command::Eval { .. } => unreachable!("eval handled before persistent store initialization"),
-        Command::Memory { action } => {
-            match action {
-                MemoryCommand::Add { text, source_ref } => {
-                    let entry = engine.store().remember_manual(&text, source_ref.as_deref())?;
-                    println!("{}", serde_json::to_string_pretty(&entry)?);
-                }
-                MemoryCommand::List { limit } => {
-                    let notes = engine.store().list_memories(limit)?;
-                    println!("{}", serde_json::to_string_pretty(&notes)?);
-                }
-                MemoryCommand::Search { query, limit } => {
-                    let notes = engine.store().search_memories(&query, limit)?;
-                    println!("{}", serde_json::to_string_pretty(&notes)?);
-                }
-                MemoryCommand::Forget { id } => {
-                    let deleted = engine.store().forget_memory(&id)?;
-                    if deleted {
-                        println!("Deleted memory note {} from the active database.", id);
-                    } else {
-                        println!("No active memory note matches {}.", id);
-                    }
+        Command::Memory { action } => match action {
+            MemoryCommand::Add { text, source_ref } => {
+                let entry = engine
+                    .store()
+                    .remember_manual(&text, source_ref.as_deref())?;
+                println!("{}", serde_json::to_string_pretty(&entry)?);
+            }
+            MemoryCommand::List { limit } => {
+                let notes = engine.store().list_memories(limit)?;
+                println!("{}", serde_json::to_string_pretty(&notes)?);
+            }
+            MemoryCommand::Search { query, limit } => {
+                let notes = engine.store().search_memories(&query, limit)?;
+                println!("{}", serde_json::to_string_pretty(&notes)?);
+            }
+            MemoryCommand::Forget { id } => {
+                let deleted = engine.store().forget_memory(&id)?;
+                if deleted {
+                    println!("Deleted memory note {} from the active database.", id);
+                } else {
+                    println!("No active memory note matches {}.", id);
                 }
             }
-        }
+        },
         Command::Check => {
             engine.provider().check()?;
             println!("Ollama is reachable on the local machine.");

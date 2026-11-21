@@ -286,16 +286,20 @@ impl Store {
              VALUES (?1, ?2, 'user_explicit', ?3)",
             params![id, content, source_ref],
         )?;
-        self.get_memory(&id)?.ok_or_else(|| "saved memory disappeared".into())
+        self.get_memory(&id)?
+            .ok_or_else(|| "saved memory disappeared".into())
     }
 
     pub fn get_memory(&self, id: &str) -> Result<Option<MemoryRecord>> {
-        Ok(self.conn.query_row(
-            "SELECT id, content, source_kind, source_ref, created_at
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT id, content, source_kind, source_ref, created_at
              FROM memory_notes WHERE id = ?1",
-            [id],
-            read_memory_row,
-        ).optional()?)
+                [id],
+                read_memory_row,
+            )
+            .optional()?)
     }
 
     pub fn list_memories(&self, limit: usize) -> Result<Vec<MemoryRecord>> {
@@ -304,7 +308,8 @@ impl Store {
             "SELECT id, content, source_kind, source_ref, created_at
              FROM memory_notes ORDER BY created_at DESC, rowid DESC LIMIT ?1",
         )?;
-        Ok(stmt.query_map([limit], read_memory_row)?
+        Ok(stmt
+            .query_map([limit], read_memory_row)?
             .collect::<std::result::Result<Vec<_>, _>>()?)
     }
 
@@ -321,14 +326,18 @@ impl Store {
              FROM memory_notes WHERE instr(lower(content), lower(?1)) > 0
              ORDER BY created_at DESC, rowid DESC LIMIT ?2",
         )?;
-        Ok(stmt.query_map(params![query, limit], read_memory_row)?
+        Ok(stmt
+            .query_map(params![query, limit], read_memory_row)?
             .collect::<std::result::Result<Vec<_>, _>>()?)
     }
 
     /// Deletes a record from the active database. Backups and forensic remnants
     /// are outside this API; never claim guaranteed complete erasure.
     pub fn forget_memory(&self, id: &str) -> Result<bool> {
-        Ok(self.conn.execute("DELETE FROM memory_notes WHERE id = ?1", [id])? > 0)
+        Ok(self
+            .conn
+            .execute("DELETE FROM memory_notes WHERE id = ?1", [id])?
+            > 0)
     }
 
     pub fn new_turn_id() -> String {
@@ -502,7 +511,10 @@ mod tests {
     fn explicit_memory_is_source_labeled_searchable_and_deletable() {
         let store = Store::in_memory().unwrap();
         let memory = store
-            .remember_manual("Buddy should challenge unsupported claims", Some("my notes"))
+            .remember_manual(
+                "Buddy should challenge unsupported claims",
+                Some("my notes"),
+            )
             .unwrap();
         assert_eq!(memory.source_kind, "user_explicit");
         assert_eq!(memory.source_ref.as_deref(), Some("my notes"));
@@ -519,7 +531,9 @@ mod tests {
         let store = Store::in_memory().unwrap();
         assert!(store.remember_manual("   ", None).is_err());
         assert!(store.remember_manual(&"x".repeat(4097), None).is_err());
-        assert!(store.remember_manual("valid", Some(&"x".repeat(1025))).is_err());
+        assert!(store
+            .remember_manual("valid", Some(&"x".repeat(1025)))
+            .is_err());
         assert!(store.search_memories(" ", 10).is_err());
         assert!(store.list_memories(10).unwrap().is_empty());
     }

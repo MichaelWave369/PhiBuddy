@@ -1,11 +1,11 @@
 //! Local Solo-versus-Council evaluation with transparent costs, not self-assigned accuracy.
-use std::{collections::HashSet, time::Instant};
-use serde::{Deserialize, Serialize};
 use crate::{
     agents::{Agent, Mode},
     engine::{CouncilDepth, Engine},
     ModelProvider, Result,
 };
+use serde::{Deserialize, Serialize};
+use std::{collections::HashSet, time::Instant};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct EvalSuite {
@@ -30,7 +30,10 @@ impl EvalSuite {
         for case in &self.cases {
             if case.id.is_empty()
                 || case.id.len() > 64
-                || !case.id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+                || !case
+                    .id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
             {
                 return Err(format!("invalid evaluation case id: {}", case.id).into());
             }
@@ -40,7 +43,11 @@ impl EvalSuite {
             if case.prompt.trim().is_empty() || case.prompt.chars().count() > 20_000 {
                 return Err(format!("invalid prompt in evaluation case: {}", case.id).into());
             }
-            if case.reference.as_ref().is_some_and(|r| r.chars().count() > 20_000) {
+            if case
+                .reference
+                .as_ref()
+                .is_some_and(|r| r.chars().count() > 20_000)
+            {
                 return Err(format!("reference too long in evaluation case: {}", case.id).into());
             }
         }
@@ -91,7 +98,13 @@ pub fn evaluate_case<P: ModelProvider>(
             elapsed_ms: started.elapsed().as_millis(),
             model_requests: match mode {
                 Mode::Solo => 1,
-                Mode::Council => if depth == CouncilDepth::Debate { 7 } else { 4 },
+                Mode::Council => {
+                    if depth == CouncilDepth::Debate {
+                        7
+                    } else {
+                        4
+                    }
+                }
                 Mode::Workshop => unreachable!("evaluation never uses Workshop"),
             },
         })
@@ -121,9 +134,9 @@ pub fn evaluate_case<P: ModelProvider>(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use super::*;
     use crate::{store::Store, Message};
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct Mock {
         calls: AtomicUsize,
@@ -139,11 +152,13 @@ mod tests {
     }
 
     fn suite() -> EvalSuite {
-        EvalSuite { cases: vec![EvalCase {
-            id: "case_01".into(),
-            prompt: "Give a short design decision".into(),
-            reference: Some("Human reference only".into()),
-        }] }
+        EvalSuite {
+            cases: vec![EvalCase {
+                id: "case_01".into(),
+                prompt: "Give a short design decision".into(),
+                reference: Some("Human reference only".into()),
+            }],
+        }
     }
 
     #[test]
@@ -162,9 +177,17 @@ mod tests {
 
     #[test]
     fn quick_comparison_is_isolated_and_reports_call_count() {
-        let provider = Mock { calls: AtomicUsize::new(0) };
+        let provider = Mock {
+            calls: AtomicUsize::new(0),
+        };
         let mut engine = Engine::new(provider, Store::in_memory().unwrap());
-        let record = evaluate_case(&mut engine, &suite().cases[0], CouncilDepth::Quick, EvalOrder::SoloFirst).unwrap();
+        let record = evaluate_case(
+            &mut engine,
+            &suite().cases[0],
+            CouncilDepth::Quick,
+            EvalOrder::SoloFirst,
+        )
+        .unwrap();
         assert_eq!(record.solo.model_requests, 1);
         assert_eq!(record.council.model_requests, 4);
         assert_eq!(engine.provider().calls.load(Ordering::Relaxed), 5);
@@ -176,9 +199,17 @@ mod tests {
 
     #[test]
     fn debate_comparison_can_run_council_first() {
-        let provider = Mock { calls: AtomicUsize::new(0) };
+        let provider = Mock {
+            calls: AtomicUsize::new(0),
+        };
         let mut engine = Engine::new(provider, Store::in_memory().unwrap());
-        let record = evaluate_case(&mut engine, &suite().cases[0], CouncilDepth::Debate, EvalOrder::CouncilFirst).unwrap();
+        let record = evaluate_case(
+            &mut engine,
+            &suite().cases[0],
+            CouncilDepth::Debate,
+            EvalOrder::CouncilFirst,
+        )
+        .unwrap();
         assert_eq!(record.council.model_requests, 7);
         assert_eq!(record.solo.model_requests, 1);
         assert_eq!(engine.provider().calls.load(Ordering::Relaxed), 8);
