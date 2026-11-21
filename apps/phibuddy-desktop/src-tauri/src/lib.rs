@@ -4,6 +4,7 @@
 use phibuddy_core::{
     agents::{Agent, Mode},
     engine::{CouncilDepth, Engine},
+    memory_discovery::{rank_suggestions, MemorySuggestion},
     progress::{check_cancel, CancelFlag, TurnProgress},
     store::{EventKind, MemoryRecord, RecordedEvent, SavedMessage, Session, Store},
     Message, ModelProvider,
@@ -256,6 +257,18 @@ fn list_memories(
     }
 }
 
+/// Suggestions are computed only when explicitly requested. They are never
+/// automatically attached to an Ollama request or written into chat history.
+#[tauri::command]
+fn suggest_memories(
+    state: State<'_, DesktopState>,
+    query: String,
+) -> Result<Vec<MemorySuggestion>, String> {
+    let engine = state.engine.lock().map_err(|_| "engine lock poisoned".to_string())?;
+    let candidates = engine.store().suggestion_candidates().map_err(|e| e.to_string())?;
+    rank_suggestions(&query, candidates, 8).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn save_memory(
     state: State<'_, DesktopState>,
@@ -392,7 +405,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_sessions, create_session, get_messages, get_events,
             check_ollama, send_prompt, cancel_turn,
-            list_memories, save_memory, delete_memory, get_turn_memories
+            list_memories, save_memory, delete_memory, get_turn_memories,
+            suggest_memories
         ])
         .run(tauri::generate_context!())
         .expect("PhiBuddy desktop startup failed");
@@ -407,6 +421,22 @@ mod tests {
         store::{EventKind, Store},
     };
     use std::sync::atomic::Ordering;
+
+    #[test]
+    fn local_suggestions_do_not_mutate_sessions_or_attach_notes() {
+        let store = Store::in_memory().unwrap();
+        store.remember_manual("Rust and SQLite local memories", Some("my notes")).unwrap();
+        let before = store.list_memories(10).unwrap().len();
+        let candidates = store.suggestion_candidates().unwrap();
+        let suggestions = phibuddy_core::memory_discovery::rank_suggestions(
+            "Rust memory", candidates, 8
+        ).unwrap();
+        assert_eq!(suggestions.len(), 1);
+        assert_eq!(suggestions[0].provenance_status, "unverified_user_note");
+        assert!(!suggestions[0].matched_terms.is_empty());
+        assert_eq!(store.list_memories(10).unwrap().len(), before);
+        assert!(store.list_sessions().unwrap().is_empty());
+    }
 
     #[test]
     fn turn_source_inspector_respects_memory_deletion() {

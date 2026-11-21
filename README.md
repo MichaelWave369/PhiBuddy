@@ -44,11 +44,19 @@ cargo run -p phibuddy -- memory search "claims"
 
 See [Council Lab design](docs/COUNCIL_LAB_V0.5.md) and [Memory ledger guide](docs/MEMORY_V0.5.md). The benchmark report contains full prompts and answers; handle it as private data. The memory database is unencrypted.
 
-## Desktop Memory Workshop (v0.6 alpha, draft)
+## Desktop Memory Workshop (v0.6)
 
 The desktop now offers an explicit **Memory** tab with save, literal search, per-turn note selection, deletion confirmation, and an attribution inspector. Selected notes are injected **only for that one message** and never harvested automatically. The event log retains selected note IDs, not copies of note bodies.
 
 See [Memory Workshop v0.6 design and acceptance](docs/MEMORY_WORKSHOP_V0.6.md). This is development source, not an installer or production memory system.
+
+## Memory Discovery (v0.7 alpha, draft)
+
+**Find related notes** in the desktop composer now runs a deterministic **local** lexical search over up to 1,000 saved user notes. It previews up to 8 matches, shows the terms responsible for each relevance score, and warns when a note is 90+ days old or has an unreadable saved date. It never silently selects or sends a note to a model: check **Attach next turn** yourself.
+
+The inspector distinguishes **unverified user notes** from **independently verified external sources**, explicitly displaying that no external source verification is implemented yet. Source labels, including URL-looking strings, remain user-supplied data.
+
+Read [Memory Discovery v0.7 design and acceptance](docs/MEMORY_DISCOVERY_V0.7.md). This is development source, not an installer or externally verified evidence system.
 
 ## Run the CLI on Windows 11
 
@@ -95,6 +103,6 @@ See [Architecture](docs/ARCHITECTURE.md), [Validation](docs/VALIDATION.md) and [
 
 ## What comes later
 
-Automated source-backed memory retrieval, security policy, sandboxed tools, optional PhiOS adapters, XR and voice are **design proposals**, not implemented features. We reviewed external architectural proposals from Grok, Claude and Hydrogen but intentionally kept this first build small and testable.
+Independently verified external source ingestion, semantic retrieval, security policy, sandboxed tools, optional PhiOS adapters, XR and voice are **design proposals**, not implemented features. We reviewed external architectural proposals from Grok, Claude and Hydrogen but intentionally kept this first build small and testable.
 
 MIT License. Copyright (c) 2026 Michael Hughes.
