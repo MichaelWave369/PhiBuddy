@@ -70,6 +70,45 @@ impl Ollama {
     }
 }
 
+/// Decode NDJSON frames independently of HTTP for deterministic testing.
+fn read_stream<R: BufRead>(
+    reader: R,
+    cancel: &CancelFlag,
+    on_delta: &mut dyn FnMut(&str),
+) -> phibuddy_core::Result<String> {
+    let mut text = String::new();
+    let mut finished = false;
+    for line in reader.lines() {
+        check_cancel(cancel)?;
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let frame: OllamaStreamChunk = serde_json::from_str(&line)?;
+        if let Some(error) = frame.error {
+            return Err(format!("Ollama stream error: {error}").into());
+        }
+        if let Some(message) = frame.message {
+            if !message.content.is_empty() {
+                text.push_str(&message.content);
+                on_delta(&message.content);
+            }
+        }
+        if frame.done.unwrap_or(false) {
+            finished = true;
+            break;
+        }
+    }
+    check_cancel(cancel)?;
+    if !finished {
+        return Err("Ollama stream ended before a done frame".into());
+    }
+    if text.trim().is_empty() {
+        return Err("Ollama returned an empty response".into());
+    }
+    Ok(text)
+}
+
 impl ModelProvider for Ollama {
     fn complete(&self, messages: &[Message]) -> phibuddy_core::Result<String> {
         let payload = messages.iter().map(|m| json!({
@@ -97,38 +136,7 @@ impl ModelProvider for Ollama {
         let response = self.client.post(self.endpoint.join("api/chat")?)
             .json(&json!({"model": self.model, "messages": payload, "stream": true}))
             .send()?.error_for_status()?;
-        let reader = BufReader::new(response);
-        let mut text = String::new();
-        let mut finished = false;
-        for line in reader.lines() {
-            check_cancel(cancel)?;
-            let line = line?;
-            if line.trim().is_empty() {
-                continue;
-            }
-            let frame: OllamaStreamChunk = serde_json::from_str(&line)?;
-            if let Some(error) = frame.error {
-                return Err(format!("Ollama stream error: {error}").into());
-            }
-            if let Some(message) = frame.message {
-                if !message.content.is_empty() {
-                    text.push_str(&message.content);
-                    on_delta(&message.content);
-                }
-            }
-            if frame.done.unwrap_or(false) {
-                finished = true;
-                break;
-            }
-        }
-        check_cancel(cancel)?;
-        if !finished {
-            return Err("Ollama stream ended before a done frame".into());
-        }
-        if text.trim().is_empty() {
-            return Err("Ollama returned an empty response".into());
-        }
-        Ok(text)
+        read_stream(BufReader::new(response), cancel, on_delta)
     }
 }
 
@@ -317,7 +325,47 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_model_name;
+    use super::{read_stream, validate_model_name};
+    use phibuddy_core::progress::CancelFlag;
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn streamed_ndjson_preserves_order_and_complete_text() {
+        let sample = concat!(
+            "{\"message\":{\"content\":\"Hello \"},\"done\":false}\n",
+            "{\"message\":{\"content\":\"crew!\"},\"done\":false}\n",
+            "{\"done\":true}\n",
+        );
+        let flag = CancelFlag::new(false);
+        let mut pieces = Vec::new();
+        let answer = read_stream(sample.as_bytes(), &flag, &mut |delta| {
+            pieces.push(delta.to_string());
+        })
+        .unwrap();
+        assert_eq!(answer, "Hello crew!");
+        assert_eq!(pieces, vec!["Hello ", "crew!"]);
+    }
+
+    #[test]
+    fn interrupted_or_malformed_ndjson_never_looks_complete() {
+        let flag = CancelFlag::new(false);
+        let incomplete = "{\"message\":{\"content\":\"partial\"},\"done\":false}\n";
+        assert!(read_stream(incomplete.as_bytes(), &flag, &mut |_| {}).is_err());
+        let malformed = "{this is not json}\n";
+        assert!(read_stream(malformed.as_bytes(), &flag, &mut |_| {}).is_err());
+    }
+
+    #[test]
+    fn cancellation_rejects_even_a_completed_stream() {
+        let flag = CancelFlag::new(true);
+        let valid = "{\"message\":{\"content\":\"ignored\"},\"done\":true}\n";
+        assert!(read_stream(valid.as_bytes(), &flag, &mut |_| {}).is_err());
+        flag.store(false, Ordering::Release);
+        assert_eq!(
+            read_stream(valid.as_bytes(), &flag, &mut |_| {}).unwrap(),
+            "ignored"
+        );
+    }
 
     #[test]
     fn local_model_name_guard() {
