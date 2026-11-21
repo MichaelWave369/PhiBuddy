@@ -13,6 +13,16 @@ type MemoryRecord = {
   source_ref: string | null; created_at: string;
 };
 type TurnMemoryRef = { id: string; memory: MemoryRecord | null };
+type PassageSelection = {
+  evidence_id: string; start_line: number; end_line: number;
+};
+type PassageAnchor = { selection: PassageSelection; sha256: string };
+type PassagePreview = {
+  selection: PassageSelection;
+  source_url: string; retrieved_at: string; sha256: string;
+  quote: string; status: "retrieved_not_fact_checked";
+};
+type TurnPassageRef = { anchor: PassageAnchor; preview: PassagePreview | null };
 type EvidenceRecord = {
   id: string;
   source_url: string;
@@ -88,6 +98,12 @@ export default function App() {
   const [evidenceError, setEvidenceError] = useState("");
   const [evidenceDeleteConfirm, setEvidenceDeleteConfirm] = useState<string | null>(null);
   const [evidenceSelected, setEvidenceSelected] = useState<string | null>(null);
+  const [passageStart, setPassageStart] = useState("1");
+  const [passageEnd, setPassageEnd] = useState("3");
+  const [passagePreview, setPassagePreview] = useState<PassagePreview | null>(null);
+  const [selectedPassages, setSelectedPassages] = useState<PassageSelection[]>([]);
+  const [activePassageCount, setActivePassageCount] = useState(0);
+  const [turnPassages, setTurnPassages] = useState<TurnPassageRef[]>([]);
 
   const active = sessions.find((s) => s.id === activeId);
   const visibleMessages = messages.filter((m) => m.role !== "contribution");
@@ -232,12 +248,55 @@ export default function App() {
       await invoke<boolean>("delete_external_evidence", { evidenceId: id });
       setEvidenceDeleteConfirm(null);
       if (evidenceSelected === id) setEvidenceSelected(null);
+      if (passagePreview?.selection.evidence_id === id) setPassagePreview(null);
+      setSelectedPassages((items) => items.filter((item) => item.evidence_id !== id));
       await loadEvidence();
     } catch (e) {
       setEvidenceError(errorText(e));
     } finally {
       setEvidenceBusy(false);
     }
+  }
+
+  async function inspectPassage(evidenceId: string) {
+    if (busy || evidenceBusy) return;
+    const startLine = Number(passageStart);
+    const endLine = Number(passageEnd);
+    if (!Number.isSafeInteger(startLine) || !Number.isSafeInteger(endLine) || startLine < 1 || endLine < startLine) {
+      setEvidenceError("Choose valid positive start and end lines.");
+      return;
+    }
+    setEvidenceError("");
+    setEvidenceBusy(true);
+    setPassagePreview(null);
+    try {
+      const preview = await invoke<PassagePreview>("preview_evidence_passage", {
+        evidenceId, startLine, endLine,
+      });
+      setPassagePreview(preview);
+    } catch (e) {
+      setEvidenceError(errorText(e));
+    } finally { setEvidenceBusy(false); }
+  }
+
+  function attachPreviewPassage() {
+    if (!passagePreview || busy || evidenceBusy) return;
+    const next = passagePreview.selection;
+    if (selectedPassages.length >= 3) {
+      setEvidenceError("Attach at most three passages per turn.");
+      return;
+    }
+    if (selectedPassages.some((entry) =>
+      entry.evidence_id === next.evidence_id &&
+      entry.start_line === next.start_line &&
+      entry.end_line === next.end_line
+    )) {
+      setEvidenceError("This exact passage is already selected.");
+      return;
+    }
+    setEvidenceError("");
+    setSelectedPassages((items) => [...items, { ...next }]);
+    setPassagePreview(null);
   }
 
   async function reloadSessions() {
@@ -285,6 +344,25 @@ export default function App() {
     void loadEvidence().catch((e) => setEvidenceError(errorText(e)));
   }, []);
 
+  useEffect(() => {
+    let ignore = false;
+    if (!activeId || !inspectedTurn) {
+      setTurnPassages([]);
+      return;
+    }
+    void invoke<TurnPassageRef[]>("get_turn_passages", {
+      sessionId: activeId, turnId: inspectedTurn,
+    }).then((items) => {
+      if (!ignore) setTurnPassages(items);
+    }).catch((e) => {
+      if (!ignore) {
+        setTurnPassages([]);
+        setEvidenceError(errorText(e));
+      }
+    });
+    return () => { ignore = true; };
+  }, [activeId, inspectedTurn, events, evidence]);
+
   // Memory management works even when Ollama is offline.
   useEffect(() => {
     void loadMemories().catch((e) => setMemoryError(errorText(e)));
@@ -315,6 +393,8 @@ export default function App() {
     suggestionRequestRef.current += 1;
     setSuggesting(false);
     setSelectedMemoryIds([]);
+    setSelectedPassages([]);
+    setPassagePreview(null);
     setSuggestedNotes([]);
     setSuggestedFor("");
     setError("");
@@ -333,6 +413,8 @@ export default function App() {
     suggestionRequestRef.current += 1;
     setSuggesting(false);
     setSelectedMemoryIds([]);
+    setSelectedPassages([]);
+    setPassagePreview(null);
     setSuggestedNotes([]);
     setSuggestedFor("");
     setError("");
@@ -344,15 +426,19 @@ export default function App() {
 
   async function submit() {
     const input = prompt.trim();
-    if (!activeId || !input || busy || memoryBusy) return;
-    // Each message requires a fresh explicit choice; do not silently reuse notes.
+    if (!activeId || !input || busy || memoryBusy || evidenceBusy) return;
+    // Each reference requires explicit user choice for exactly this turn.
     const memoryIds = [...selectedMemoryIds];
+    const passageSelections = selectedPassages.map((item) => ({ ...item }));
     suggestionRequestRef.current += 1;
     setSuggesting(false);
     setSelectedMemoryIds([]);
+    setSelectedPassages([]);
+    setPassagePreview(null);
     setSuggestedNotes([]);
     setSuggestedFor("");
     setActiveMemoryCount(memoryIds.length);
+    setActivePassageCount(passageSelections.length);
     setBusy(true);
     setCancelRequested(false);
     setCurrentStage("Preparing model…");
@@ -371,7 +457,7 @@ export default function App() {
     };
     try {
       await invoke("send_prompt", {
-        sessionId: activeId, input, depth, memoryIds, onProgress,
+        sessionId: activeId, input, depth, memoryIds, passageSelections, onProgress,
       });
       setPrompt("");
       await loadSession(activeId);
@@ -387,6 +473,7 @@ export default function App() {
       setCancelRequested(false);
       setCurrentStage("");
       setActiveMemoryCount(0);
+      setActivePassageCount(0);
     }
   }
 
@@ -456,7 +543,7 @@ export default function App() {
             <section className="live-reply" aria-label="Current AI generation">
               <div className="message-label" role="status">{currentStage || "Crew working…"}</div>
               <div className="message-body" aria-live="off">{liveOutput || "Waiting for the first token…"}</div>
-              <p className="hint">Live Ollama output · {activeMemoryCount} explicitly attached notes · Incomplete turns are not saved as chat replies</p>
+              <p className="hint">Live Ollama output · {activeMemoryCount} notes · {activePassageCount} passages attached · Incomplete turns aren't saved as chat replies</p>
             </section>
           )}
         </section>
@@ -479,6 +566,13 @@ export default function App() {
             </button>
             {selectedMemoryIds.length > 0 && <button type="button" disabled={busy}
               onClick={() => setSelectedMemoryIds([])}>Clear</button>}
+          </div>
+          <div className="passage-composer" aria-label="Source passage attachments">
+            <span>{selectedPassages.length} selected source passage(s) for next turn only</span>
+            <button type="button" disabled={busy || evidenceBusy}
+              onClick={() => setInspector("evidence")}>Choose source passage</button>
+            {selectedPassages.length > 0 && <button type="button" disabled={busy}
+              onClick={() => setSelectedPassages([])}>Clear passages</button>}
           </div>
           {error && <div className="error" role="alert">{error}</div>}
           <label className="sr-only" htmlFor="prompt">Your message</label>
@@ -614,7 +708,7 @@ export default function App() {
                 onClick={() => void captureEvidence()}>
                 {evidenceBusy ? "Retrieving…" : "Retrieve and save snapshot"}
               </button>
-              <p className="hint">No redirects. No login, HTML, arbitrary websites, or agent-initiated fetching. Text is capped at 256 KiB and stored unencrypted in local SQLite.</p>
+              <p className="hint">No redirects. No login, HTML, arbitrary websites, or agent-initiated fetching. Text is capped at 256 KiB and stored unencrypted in local SQLite. A snapshot is not fact-checked.</p>
               <div className="registry-divider">
                 <h3>Saved retrieved sources ({evidence.length})</h3>
                 <button type="button" disabled={evidenceBusy || busy}
@@ -635,7 +729,35 @@ export default function App() {
                     {evidenceSelected === record.id ? "Hide saved text" : "Inspect saved text"}
                   </button>
                   {evidenceSelected === record.id && (
-                    <pre className="evidence-snapshot">{record.content}</pre>
+                    <div className="passage-picker">
+                      <p className="hint">Saved source has {record.content.split("\n").length} lines. The first 200 appear with line numbers; any valid range may be previewed.</p>
+                      <pre className="evidence-snapshot">{record.content.split("\n").slice(0, 200).map((line, i) =>
+                        `${i + 1} | ${line}`
+                      ).join("\n")}</pre>
+                      <div className="passage-range">
+                        <label>First line
+                          <input inputMode="numeric" value={passageStart} disabled={evidenceBusy || busy}
+                            onChange={(e) => { setPassageStart(e.target.value); setPassagePreview(null); }} />
+                        </label>
+                        <label>Last line (inclusive)
+                          <input inputMode="numeric" value={passageEnd} disabled={evidenceBusy || busy}
+                            onChange={(e) => { setPassageEnd(e.target.value); setPassagePreview(null); }} />
+                        </label>
+                      </div>
+                      <button type="button" disabled={evidenceBusy || busy}
+                        onClick={() => void inspectPassage(record.id)}>Preview exact passage</button>
+                      {passagePreview?.selection.evidence_id === record.id && (
+                        <div className="passage-exact-preview">
+                          <strong>Exact stored quote · not independently verified</strong>
+                          <pre>{passagePreview.quote}</pre>
+                          <p className="evidence-hash">
+                            Lines {passagePreview.selection.start_line}-{passagePreview.selection.end_line} · SHA-256 {passagePreview.sha256}
+                          </p>
+                          <button type="button" disabled={evidenceBusy || busy}
+                            onClick={attachPreviewPassage}>Attach this passage to next turn</button>
+                        </div>
+                      )}
+                    </div>
                   )}
                   {evidenceDeleteConfirm === record.id ? (
                     <div className="delete-actions">
@@ -648,6 +770,14 @@ export default function App() {
                   ) : <button type="button" className="delete-memory" disabled={evidenceBusy || busy}
                     onClick={() => setEvidenceDeleteConfirm(record.id)}>Delete snapshot</button>}
                 </article>
+              ))}
+              <p className="hint">{selectedPassages.length}/3 user-selected passages queued for next turn. They will not be reused automatically.</p>
+              {selectedPassages.map((passage, i) => (
+                <div className="queued-passage" key={`${passage.evidence_id}-${passage.start_line}-${passage.end_line}`}>
+                  <span>#{i + 1} · {passage.evidence_id.slice(0, 8)} · lines {passage.start_line}-{passage.end_line}</span>
+                  <button type="button" disabled={busy}
+                    onClick={() => setSelectedPassages((items) => items.filter((x) => x !== passage))}>Remove</button>
+                </div>
               ))}
               {evidence.length === 0 && <p className="hint">No retrieved snapshots yet. They remain separate from personal memory.</p>}
               <section className="verified-evidence">
@@ -672,9 +802,23 @@ export default function App() {
                   </article>
                 ))}
               </section>}
-              <section className="verified-evidence">
+              {turnPassages.length > 0 && <section className="turn-sources">
+                <h3>Exact source excerpts attached to this turn</h3>
+                <p className="hint">Each anchor came from an explicitly selected stored passage. Quotes are exact snapshot text. AI interpretations are separate, unverified outputs. No claim has been independently fact-checked.</p>
+                {turnPassages.map((entry, i) => (
+                  <article className="source-record" key={i}>
+                    <div className="memory-source-label">Source excerpt (not fact-checked) · Lines {entry.anchor.selection.start_line}-{entry.anchor.selection.end_line}</div>
+                    <div className="evidence-source-url">{entry.preview?.source_url ?? "Snapshot deleted, changed, or unavailable"}</div>
+                    <p className="evidence-hash">SHA-256 at attachment: {entry.anchor.sha256}</p>
+                    {entry.preview ? <pre className="evidence-snapshot">{entry.preview.quote}</pre>
+                      : <p className="hint">Original quote unavailable. The event log retains only the source ID, line range and fingerprint.</p>}
+                    <small className="memory-id">ID: {entry.anchor.selection.evidence_id}</small>
+                  </article>
+                ))}
+              </section>}
+                            <section className="verified-evidence">
                 <h3>External evidence status</h3>
-                <p className="hint">Fetched text snapshots are available in the Evidence tab, but no external claim verification is performed. Generated citations and saved memory source labels remain unverified.</p>
+                <p className="hint"><strong>Direct quote:</strong> exact line excerpt from the saved snapshot, anchored by ID and SHA-256. <strong>Inference:</strong> Buddy's interpretation, not a source fact. <strong>Verified claim:</strong> unavailable; this version has no independent claim checker. Generated citations are not validated.</p>
               </section>
                             {inspector === "contributions" ? (
             contributions.length ? contributions.map((e) =>
