@@ -9,6 +9,17 @@ The registry distinguishes:
 2. **Retrieved text snapshots:** obtained on explicit user request from a constrained HTTPS allowlist; source URL and response bytes recorded with timestamp and SHA-256. Publisher authenticity, claims and factual interpretation are *not* independently verified.
 3. **Unverified claims:** agent prose not linked to a validated claim-checking procedure. A snapshot's existence does not upgrade any answer to verified.
 
+## Isolated alpha test database
+
+A different Git checkout does **not** normally mean a different database. By default the desktop still uses `%LOCALAPPDATA%\\PhiBuddy\\buddy.sqlite3` on Windows. To test without modifying your normal history, set `PHIBUDDY_DB_PATH` to a disposable, new file before launching:
+
+```powershell
+$env:PHIBUDDY_DB_PATH = Join-Path (Get-Location) 'phibuddy-v08-test.sqlite3'
+npm run desktop
+```
+
+The path override applies only to the process launched from that shell. Existing SQLite data remains at its usual location; never reuse an important file as the test path. Remember that WAL files and backups can contain snapshot data, so deletion is not a full secure erase.
+
 ## Desktop workflow
 
 Open **Evidence** in the right-side inspector. Paste a supported public HTTPS text URL, then click **Retrieve and save snapshot**. The desktop retrieves the text and stores it locally. You can inspect the exact saved text, content type, source host, retrieval time and SHA-256 fingerprint, or delete the snapshot with a confirmation action.

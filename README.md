@@ -66,6 +66,8 @@ Supported inputs include `https://www.rfc-editor.org/rfc/rfc9111.txt` and a GitH
 
 Read [Evidence Registry v0.8 architecture and acceptance](docs/EVIDENCE_REGISTRY_V0.8.md). Review source only; not a release or a general web browser.
 
+Set `PHIBUDDY_DB_PATH` in your test shell to use an isolated SQLite database. A fresh clone by itself still shares the normal database path.
+
 ## Run the CLI on Windows 11
 
 Prerequisites: Rust stable toolchain (`cargo --version`), Ollama (`ollama list`) and an installed model. `qwen3:4b` is the default and can be changed using `--model`.

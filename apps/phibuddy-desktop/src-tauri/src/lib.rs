@@ -203,6 +203,13 @@ struct TurnView {
 }
 
 fn default_db() -> PathBuf {
+    // Opt-in test isolation: do not make a separate source checkout silently
+    // share the user's real database when a test path was specified.
+    if let Some(path) = env::var_os("PHIBUDDY_DB_PATH") {
+        if !path.is_empty() {
+            return PathBuf::from(path);
+        }
+    }
     if let Some(dir) = env::var_os("LOCALAPPDATA") {
         return PathBuf::from(dir).join("PhiBuddy").join("buddy.sqlite3");
     }
