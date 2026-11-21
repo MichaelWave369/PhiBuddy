@@ -351,11 +351,13 @@ impl Store {
                     CAST(julianday('now') - julianday(created_at) AS INTEGER)
              FROM memory_notes ORDER BY created_at DESC, rowid DESC LIMIT 1000",
         )?;
-        let rows = stmt.query_map([], |row| {
-            let note = read_memory_row(row)?;
-            let age_days = row.get::<_, Option<i64>>(5)?.map(|age| age.max(0));
-            Ok(MemoryCandidate { note, age_days })
-        })?.collect::<std::result::Result<Vec<_>, _>>()?;
+        let rows = stmt
+            .query_map([], |row| {
+                let note = read_memory_row(row)?;
+                let age_days = row.get::<_, Option<i64>>(5)?.map(|age| age.max(0));
+                Ok(MemoryCandidate { note, age_days })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(rows)
     }
 

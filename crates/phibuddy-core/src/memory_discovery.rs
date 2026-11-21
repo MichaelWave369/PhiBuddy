@@ -23,20 +23,18 @@ pub struct MemorySuggestion {
 }
 
 const STOP_WORDS: &[&str] = &[
-    "about", "after", "again", "also", "and", "are", "before", "but", "can",
-    "does", "for", "from", "have", "how", "into", "its", "not", "our",
-    "the", "their", "them", "this", "that", "these", "those", "use", "using",
-    "was", "were", "what", "when", "where", "which", "who", "why", "with",
-    "would", "your", "you", "me", "my", "we", "a", "an", "to", "of", "on",
-    "in", "is", "it", "be", "or", "as", "at", "by", "do", "if",
+    "about", "after", "again", "also", "and", "are", "before", "but", "can", "does", "for", "from",
+    "have", "how", "into", "its", "not", "our", "the", "their", "them", "this", "that", "these",
+    "those", "use", "using", "was", "were", "what", "when", "where", "which", "who", "why", "with",
+    "would", "your", "you", "me", "my", "we", "a", "an", "to", "of", "on", "in", "is", "it", "be",
+    "or", "as", "at", "by", "do", "if",
 ];
 
 fn tokens(text: &str) -> BTreeSet<String> {
     text.split(|c: char| !c.is_alphanumeric())
         .filter_map(|token| {
             let token = token.to_lowercase();
-            (token.chars().count() >= 2 && !STOP_WORDS.contains(&token.as_str()))
-                .then_some(token)
+            (token.chars().count() >= 2 && !STOP_WORDS.contains(&token.as_str())).then_some(token)
         })
         .collect()
 }
@@ -87,8 +85,8 @@ pub fn rank_suggestions(
         {
             score += 6;
         }
-        let review_recommended = candidate.age_days.is_none()
-            || candidate.age_days.is_some_and(|age| age >= 90);
+        let review_recommended =
+            candidate.age_days.is_none() || candidate.age_days.is_some_and(|age| age >= 90);
         ranked.push(MemorySuggestion {
             note: candidate.note,
             relevance_score: score,
@@ -102,7 +100,11 @@ pub fn rank_suggestions(
         b.relevance_score
             .cmp(&a.relevance_score)
             .then_with(|| a.review_recommended.cmp(&b.review_recommended))
-            .then_with(|| a.age_days.unwrap_or(i64::MAX).cmp(&b.age_days.unwrap_or(i64::MAX)))
+            .then_with(|| {
+                a.age_days
+                    .unwrap_or(i64::MAX)
+                    .cmp(&b.age_days.unwrap_or(i64::MAX))
+            })
             .then_with(|| a.note.id.cmp(&b.note.id))
     });
     ranked.truncate(limit.min(12));
@@ -160,8 +162,12 @@ mod tests {
         let notes = vec![candidate("one", "network security", None, Some(2))];
         assert!(rank_suggestions("", notes.clone(), 5).is_err());
         assert!(rank_suggestions(&"x".repeat(2001), notes.clone(), 5).is_err());
-        assert!(rank_suggestions("the and or", notes.clone(), 5).unwrap().is_empty());
-        assert!(rank_suggestions("painting", notes.clone(), 5).unwrap().is_empty());
+        assert!(rank_suggestions("the and or", notes.clone(), 5)
+            .unwrap()
+            .is_empty());
+        assert!(rank_suggestions("painting", notes.clone(), 5)
+            .unwrap()
+            .is_empty());
         assert!(rank_suggestions("network", notes, 0).unwrap().is_empty());
     }
 }
