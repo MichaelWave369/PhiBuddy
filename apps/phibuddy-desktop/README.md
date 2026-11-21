@@ -28,7 +28,7 @@ $env:PHIBUDDY_MODEL = "qwen3.5:9b"
 npm run desktop
 ```
 
-**Known limitations:** First build must download dependencies. No release binaries or mobile packaging. The desktop currently links against the shared `phibuddy-core` directly; a future provider adapter will remove the small duplicated Ollama client from the CLI and desktop. The desktop and CLI share the same database file: SQLite WAL permits concurrency, but long desktop model turns hold this app's internal mutex. We have not tested simultaneous CLI and GUI usage yet.
+**Privacy note:** The app rejects model names containing `cloud`, since Ollama can route some tags to remote inference. This check cannot guarantee a renamed model or custom alias is local; verify your Ollama model's actual backend before entering sensitive data. The app has no telemetry of its own.\n\n**Known limitations:** First build must download dependencies. No release binaries or mobile packaging. The desktop currently links against the shared `phibuddy-core` directly; a future provider adapter will remove the small duplicated Ollama client from the CLI and desktop. The desktop and CLI share the same database file: SQLite WAL permits concurrency, but long desktop model turns hold this app's internal mutex. We have not tested simultaneous CLI and GUI usage yet.
 
 ## Validation
 

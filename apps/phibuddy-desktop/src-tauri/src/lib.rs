@@ -31,10 +31,21 @@ struct OllamaReply { message: OllamaMessage }
 #[derive(Deserialize)]
 struct OllamaMessage { content: String }
 
+/// Fail closed for obvious cloud-backed Ollama model tags. This is a guard,
+/// not proof that a renamed alias or provider uses only local inference.
+fn validate_model_name(model: String) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    if model.trim().is_empty() || model.to_ascii_lowercase().contains("cloud") {
+        return Err("PhiBuddy desktop preview requires a local model name; cloud tags are disabled".into());
+    }
+    Ok(model)
+}
+
 impl Ollama {
     fn new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Self {
-            model: env::var("PHIBUDDY_MODEL").unwrap_or_else(|_| "qwen3:4b".to_string()),
+            model: validate_model_name(
+                env::var("PHIBUDDY_MODEL").unwrap_or_else(|_| "qwen3:4b".to_string())
+            )?,
             endpoint: Url::parse("http://127.0.0.1:11434/")?,
             client: Client::builder().timeout(Duration::from_secs(180)).build()?,
         })
@@ -210,4 +221,17 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("PhiBuddy desktop startup failed");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_model_name;
+
+    #[test]
+    fn local_model_name_guard() {
+        assert_eq!(validate_model_name("qwen3:4b".to_string()).unwrap(), "qwen3:4b");
+        assert!(validate_model_name("kimi-k3:cloud".to_string()).is_err());
+        assert!(validate_model_name("qwen3-vl:235b-cloud".to_string()).is_err());
+        assert!(validate_model_name("".to_string()).is_err());
+    }
 }

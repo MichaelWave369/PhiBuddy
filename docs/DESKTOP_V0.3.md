@@ -12,7 +12,7 @@ The frontend displays saved chat, the original recorded per-agent text, and the 
 - Inference still uses non-streaming Ollama HTTP calls through a blocking worker. Long Councils can take time. No fake percentages or token-stream claims.
 - The desktop Rust adapter temporarily contains its own Ollama client implementation; moving it to a provider crate is later work to avoid widening the core before its API has stabilized.
 - A mutex serializes prompts and DB queries within the desktop app. It prevents overlapping in-app turns but also delays event polling during a turn. True live-event streaming requires an engine stage callback or a separate event reader.
-- Only local 127.0.0.1 Ollama is supported, with no arbitrary endpoint controls. External network adapters require explicit privacy policy later.
+- Only local 127.0.0.1 Ollama endpoints are supported and obvious `cloud` model tags are rejected. **Loopback HTTP does not guarantee local inference**: model aliases or Ollama providers may still route data remotely. The user must verify the selected model's actual backend. External network adapters require explicit egress consent and policy later.
 - No sandbox or tool executor has been implemented. The native process retains normal application privileges, but models have no commands to use those privileges.
 - The preview intentionally disables release bundling and has no installer. The desktop requires a local build environment.
 - For upgrades: make a backup of `%LOCALAPPDATA%\PhiBuddy\buddy.sqlite3` and related WAL/SHM files while PhiBuddy is closed.
