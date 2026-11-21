@@ -23,6 +23,19 @@ type PassagePreview = {
   quote: string; status: "retrieved_not_fact_checked";
 };
 type TurnPassageRef = { anchor: PassageAnchor; preview: PassagePreview | null };
+type ClaimFinding = {
+  anchor: PassageAnchor;
+  source_url: string | null;
+  text_match: "exact_text_found" | "text_overlap_only" | "no_text_match" | "source_unavailable";
+  shared_terms: string[];
+  original_quote: string | null;
+};
+type ClaimReview = {
+  claim: string;
+  turn_id: string;
+  findings: ClaimFinding[];
+  status: "textual_comparison_only_not_fact_checked";
+};
 type EvidenceRecord = {
   id: string;
   source_url: string;
@@ -104,6 +117,11 @@ export default function App() {
   const [selectedPassages, setSelectedPassages] = useState<PassageSelection[]>([]);
   const [activePassageCount, setActivePassageCount] = useState(0);
   const [turnPassages, setTurnPassages] = useState<TurnPassageRef[]>([]);
+  const [claimDraft, setClaimDraft] = useState("");
+  const [claimReview, setClaimReview] = useState<ClaimReview | null>(null);
+  const [claimReviewBusy, setClaimReviewBusy] = useState(false);
+  const [claimReviewError, setClaimReviewError] = useState("");
+  const claimReviewRequestRef = useRef(0);
 
   const active = sessions.find((s) => s.id === activeId);
   const visibleMessages = messages.filter((m) => m.role !== "contribution");
@@ -299,6 +317,29 @@ export default function App() {
     setPassagePreview(null);
   }
 
+  async function checkClaimAgainstTurn() {
+    if (!activeId || !inspectedTurn || busy || claimReviewBusy) return;
+    const claim = claimDraft.trim();
+    if (claim.length < 12 || claim.length > 600) {
+      setClaimReviewError("Enter a claim of 12 to 600 characters.");
+      return;
+    }
+    const requestId = ++claimReviewRequestRef.current;
+    setClaimReviewBusy(true);
+    setClaimReviewError("");
+    setClaimReview(null);
+    try {
+      const result = await invoke<ClaimReview>("review_turn_claim", {
+        sessionId: activeId, turnId: inspectedTurn, claim,
+      });
+      if (requestId === claimReviewRequestRef.current) setClaimReview(result);
+    } catch (e) {
+      if (requestId === claimReviewRequestRef.current) setClaimReviewError(errorText(e));
+    } finally {
+      if (requestId === claimReviewRequestRef.current) setClaimReviewBusy(false);
+    }
+  }
+
   async function reloadSessions() {
     const result = await invoke<Session[]>("get_sessions");
     setSessions(result);
@@ -362,6 +403,14 @@ export default function App() {
     });
     return () => { ignore = true; };
   }, [activeId, inspectedTurn, events, evidence]);
+
+  // A review is never silently carried across turns, sessions, or source edits.
+  useEffect(() => {
+    claimReviewRequestRef.current += 1;
+    setClaimReview(null);
+    setClaimReviewError("");
+    setClaimReviewBusy(false);
+  }, [activeId, inspectedTurn, evidence]);
 
   // Memory management works even when Ollama is offline.
   useEffect(() => {
@@ -816,6 +865,46 @@ export default function App() {
                   </article>
                 ))}
               </section>}
+                            <section className="claim-support-panel">
+                <h3>Claim Support Lab · Local text check</h3>
+                <p className="hint">Paste a sentence or claim from Buddy's answer. This looks only at source passages attached to the selected turn. Exact wording is a quote match, not proof the claim is true. Related words are not semantic support.</p>
+                <label htmlFor="claim-review-text">Claim to compare</label>
+                <textarea id="claim-review-text" rows={3} maxLength={600}
+                  value={claimDraft} disabled={claimReviewBusy || busy}
+                  onChange={(e) => {
+                    claimReviewRequestRef.current += 1;
+                    setClaimDraft(e.target.value);
+                    setClaimReview(null);
+                    setClaimReviewError("");
+                    setClaimReviewBusy(false);
+                  }}
+                  placeholder="Paste one claim from the assistant's answer..." />
+                <button type="button" className="primary wide"
+                  disabled={!inspectedTurn || claimReviewBusy || busy || claimDraft.trim().length < 12}
+                  onClick={() => void checkClaimAgainstTurn()}>
+                  {claimReviewBusy ? "Checking saved passages…" : "Compare against attached passages"}
+                </button>
+                {claimReviewError && <p className="error" role="alert">{claimReviewError}</p>}
+                {claimReview && <div className="claim-review-results">
+                  <p className="hint">Comparison only · Not fact-checked · {claimReview.findings.length} attached passage(s)</p>
+                  {claimReview.findings.length === 0 && <p className="memory-age-warning">No external source passage was attached to this turn. There is nothing source-backed to compare against.</p>}
+                  {claimReview.findings.map((finding, index) => (
+                    <article className="claim-finding" key={`${finding.anchor.selection.evidence_id}-${index}`}>
+                      <strong>{finding.text_match === "exact_text_found" ? "Exact wording occurs in source"
+                        : finding.text_match === "text_overlap_only" ? "Related wording only · human review needed"
+                        : finding.text_match === "source_unavailable" ? "Source deleted or changed · unavailable"
+                        : "No textual match found"}</strong>
+                      <p className="evidence-source-url">{finding.source_url ?? "Original URL unavailable from current snapshot"}</p>
+                      <p className="evidence-meta">
+                        Lines {finding.anchor.selection.start_line}-{finding.anchor.selection.end_line}
+                        {" · "}SHA-256 {finding.anchor.sha256}
+                      </p>
+                      {finding.shared_terms.length > 0 && <p className="evidence-meta">Common terms: {finding.shared_terms.join(", ")}</p>}
+                      {finding.original_quote && <pre className="evidence-snapshot">{finding.original_quote}</pre>}
+                    </article>
+                  ))}
+                </div>}
+              </section>
                             <section className="verified-evidence">
                 <h3>External evidence status</h3>
                 <p className="hint"><strong>Direct quote:</strong> exact line excerpt from the saved snapshot, anchored by ID and SHA-256. <strong>Inference:</strong> Buddy's interpretation, not a source fact. <strong>Verified claim:</strong> unavailable; this version has no independent claim checker. Generated citations are not validated.</p>

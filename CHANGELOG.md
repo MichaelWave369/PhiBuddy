@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.0-alpha.1 (draft source, not a stable release)
+
+- Introduced Claim Support Lab: a user-triggered, read-only check of one explicitly pasted claim against only source passages attached to a specified recorded turn.
+- Distinguishes exact text occurrence, shared terms only, no textual match, and source unavailable after deletion or fingerprint mismatch. No status is factual verification.
+- Re-validates the current source snapshot SHA-256 and line range; does not copy evidence into new databases or create agent events.
+- Adds a desktop inspector section for claim input, review results, source URL/line/hash references and the currently available original excerpt.
+- Ensures claim review result is cleared on turn/session/source or input changes; no retained automated verdict or external network/model call.
+- Adds regression tests for exact match, lexical false positives, missing/invalid turns, deleted sources and zero-source turns.
+- No new model/tool permissions, data ingestion, or source fetch capabilities.
+
+
 ## 0.9.0-alpha.1 (draft, not released)
 
 - Added exact line-range passage previews from saved external evidence snapshots, verified against the stored SHA-256 before being shown or used.

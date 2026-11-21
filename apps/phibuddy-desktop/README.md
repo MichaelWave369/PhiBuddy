@@ -1,4 +1,4 @@
-# PhiBuddy Desktop v0.9 source alpha
+# PhiBuddy Desktop v1.0 source alpha
 
 A Tauri 2 + React workbench built on the existing `phibuddy-core` Rust library.
 
@@ -39,7 +39,7 @@ npm run desktop
 - Rust core: from repository root, `cargo test --workspace`.
 - Manual: launch Ollama, start a Quick Council turn, verify three independent draft cards and one synthesis; repeat with Debate (three critiques). Close and reopen, confirm history and events persist.
 
-**Security:** Seventeen narrow Tauri commands are registered. Agent responses are plain text and are not executed or rendered as HTML. The capability manifest grants only Tauri core APIs. The local Ollama endpoint is hardcoded to `127.0.0.1:11434`. Tool execution remains absent.
+**Security:** Eighteen narrow Tauri commands are registered. Agent responses are plain text and are not executed or rendered as HTML. The capability manifest grants only Tauri core APIs. The local Ollama endpoint is hardcoded to `127.0.0.1:11434`. Tool execution remains absent.
 
 ## Memory Workshop v0.6
 
@@ -66,6 +66,12 @@ Open a saved source in **Evidence**, select a 1-based inclusive start/end line r
 In **Contributions** or **Timeline**, the current turn's passage anchor is resolved from the local evidence registry. Missing or altered snapshots show unavailable rather than an invented quote. Source text is never automatically retrieved or attached. A quote is not a fact check.
 
 See [source passage architecture, safety, and tests](../../docs/SOURCE_PASSAGES_V0.9.md).
+
+## Claim Support Lab (v1.0 alpha)
+
+Choose a recorded turn in **Contributions** or **Timeline**. Under the attached passages, paste a specific model claim and click **Compare against attached passages**. The local Rust command checks only that turn's source attachments and distinguishes exact text, word overlap, no textual match, or unavailable sources. It **cannot** verify a factual claim or judge an inference, and does not send the claim to Ollama.
+
+See [Claim Support Lab limits and acceptance](../../docs/CLAIM_SUPPORT_LAB_V1.0.md).
 
 ## Streaming v0.4 acceptance
 

@@ -2,6 +2,7 @@
 //! No shell commands or external tools are executed by this crate.
 
 pub mod agents;
+pub mod claim_support;
 pub mod engine;
 pub mod evaluation;
 pub mod evidence_passages;

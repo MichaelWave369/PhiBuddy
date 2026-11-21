@@ -5,6 +5,7 @@ mod evidence_fetch;
 
 use phibuddy_core::{
     agents::{Agent, Mode},
+    claim_support::{review_claim, ClaimReview},
     engine::{CouncilDepth, Engine, TurnReferences},
     evidence_passages::{preview_passage, PassageAnchor, PassagePreview, PassageSelection},
     memory_discovery::{rank_suggestions, MemorySuggestion},
@@ -402,6 +403,18 @@ fn resolve_turn_passages(
         }).collect()
 }
 
+/// Explicit read-only text check. No network, model call or saved verdict.
+#[tauri::command]
+fn review_turn_claim(
+    state: State<'_, DesktopState>,
+    session_id: String,
+    turn_id: String,
+    claim: String,
+) -> Result<ClaimReview, String> {
+    let engine = state.engine.lock().map_err(|_| "engine lock poisoned".to_string())?;
+    review_claim(engine.store(), &session_id, &turn_id, &claim).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn get_turn_passages(
     state: State<'_, DesktopState>,
@@ -509,7 +522,7 @@ pub fn run() {
             list_memories, save_memory, delete_memory, get_turn_memories,
             suggest_memories,
             fetch_external_evidence, list_external_evidence, delete_external_evidence,
-            preview_evidence_passage, get_turn_passages
+            preview_evidence_passage, get_turn_passages, review_turn_claim
         ])
         .run(tauri::generate_context!())
         .expect("PhiBuddy desktop startup failed");
