@@ -529,6 +529,35 @@ mod tests {
     }
 
     #[test]
+    fn manual_memory_survives_restart_and_forget_remains_deleted() {
+        let tmp = std::env::temp_dir().join(format!(
+            "phibuddy-memory-reopen-{}.sqlite3",
+            Uuid::new_v4()
+        ));
+        let id = {
+            let store = Store::open(&tmp).unwrap();
+            store
+                .remember_manual("A remembered fact with its own source", Some("test note"))
+                .unwrap()
+                .id
+        };
+        {
+            let store = Store::open(&tmp).unwrap();
+            let note = store.get_memory(&id).unwrap().unwrap();
+            assert_eq!(note.content, "A remembered fact with its own source");
+            assert_eq!(note.source_kind, "user_explicit");
+            assert!(store.forget_memory(&id).unwrap());
+        }
+        {
+            let store = Store::open(&tmp).unwrap();
+            assert!(store.get_memory(&id).unwrap().is_none());
+        }
+        let _ = std::fs::remove_file(&tmp);
+        let _ = std::fs::remove_file(tmp.with_extension("sqlite3-wal"));
+        let _ = std::fs::remove_file(tmp.with_extension("sqlite3-shm"));
+    }
+
+    #[test]
     fn invalid_memory_inputs_are_rejected_without_writes() {
         let store = Store::in_memory().unwrap();
         assert!(store.remember_manual("   ", None).is_err());
