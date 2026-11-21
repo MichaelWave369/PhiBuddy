@@ -8,6 +8,7 @@ This feature keeps the local Rust core and existing CLI behavior intact while ad
 - The desktop Ollama adapter uses `stream: true` and parses NDJSON frames. Each received `message.content` chunk is delivered through a typed Tauri 2 `Channel<TurnProgress>`.
 - The core emits `turn_started`, `stage_started`, `delta`, and `stage_finished` progress notifications. Those are ephemeral UI events, **not model-generated progress percentages**.
 - The UI displays the current stage and actual partial output. During a Council, each stage replaces the ephemeral preview while its **completed** original text is preserved as a SQLite deliberation event.
+- If the Tauri channel is disconnected, the host sets the same cancellation flag rather than silently continuing background generation.
 - A `cancel_turn` command sets an atomic cancellation flag **without acquiring the engine mutex**. The current model request exits when it observes the flag. The active slot is cleared even if the worker fails.
 - If a stream is cancelled or fails after producing text, a `stage_partial` event stores that incomplete text. The turn ends with `turn_cancelled` or `turn_failed` and **does not enter future conversation history**.
 

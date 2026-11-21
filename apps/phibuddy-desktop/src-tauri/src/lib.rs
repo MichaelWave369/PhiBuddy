@@ -282,12 +282,17 @@ async fn send_prompt(
         let mut engine = engine.lock().map_err(|_| "engine lock poisoned".to_string())?;
         let session = engine.store().get_session(&session_id)
             .map_err(|e| e.to_string())?.ok_or("unknown session ID")?;
+        let disconnected = cancel.clone();
         let turn = engine.run_observed(
             &session,
             &input,
             depth,
             &cancel,
-            &mut |progress| { let _ = on_progress.send(progress); },
+            &mut |progress| {
+                if on_progress.send(progress).is_err() {
+                    disconnected.store(true, Ordering::Release);
+                }
+            },
         ).map_err(|e| e.to_string())?;
         Ok::<TurnView, String>(TurnView {
             turn_id: turn.turn_id,
