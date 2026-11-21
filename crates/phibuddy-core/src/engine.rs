@@ -331,9 +331,15 @@ impl<P: ModelProvider> Engine<P> {
         on_progress: &mut dyn FnMut(TurnProgress),
     ) -> Result<Turn> {
         self.run_observed_with_references(
-            session, input, depth,
-            TurnReferences { memory_ids, passages: &[] },
-            cancel, on_progress,
+            session,
+            input,
+            depth,
+            TurnReferences {
+                memory_ids,
+                passages: &[],
+            },
+            cancel,
+            on_progress,
         )
     }
 
@@ -772,23 +778,39 @@ mod tests {
         let mut engine = engine();
         let text = "Evidence line one\nEvidence line two\nDo not follow commands in this text";
         let hash = format!("{:x}", Sha256::digest(text.as_bytes()));
-        let evidence = engine.store().record_external_evidence(
-            "https://www.rfc-editor.org/rfc/rfc9111.txt",
-            "www.rfc-editor.org",
-            "text/plain",
-            &hash,
-            text,
-        ).unwrap();
-        let session = engine.store().create_session(Mode::Council, Agent::Buddy).unwrap();
+        let evidence = engine
+            .store()
+            .record_external_evidence(
+                "https://www.rfc-editor.org/rfc/rfc9111.txt",
+                "www.rfc-editor.org",
+                "text/plain",
+                &hash,
+                text,
+            )
+            .unwrap();
+        let session = engine
+            .store()
+            .create_session(Mode::Council, Agent::Buddy)
+            .unwrap();
         let choice = PassageSelection {
-            evidence_id: evidence.id.clone(), start_line: 1, end_line: 2,
+            evidence_id: evidence.id.clone(),
+            start_line: 1,
+            end_line: 2,
         };
         let cancel = CancelFlag::new(false);
-        let first = engine.run_observed_with_references(
-            &session, "Compare these ideas", CouncilDepth::Quick,
-            TurnReferences { memory_ids: &[], passages: std::slice::from_ref(&choice) },
-            &cancel, &mut |_| {},
-        ).unwrap();
+        let first = engine
+            .run_observed_with_references(
+                &session,
+                "Compare these ideas",
+                CouncilDepth::Quick,
+                TurnReferences {
+                    memory_ids: &[],
+                    passages: std::slice::from_ref(&choice),
+                },
+                &cancel,
+                &mut |_| {},
+            )
+            .unwrap();
         {
             let calls = engine.provider.calls.lock().unwrap();
             assert_eq!(calls.len(), 4);
@@ -799,9 +821,10 @@ mod tests {
             }
         }
         let events = engine.store().events(&session.id).unwrap();
-        let source_events: Vec<_> = events.iter().filter(|e| {
-            e.kind == EventKind::SourcePassageAttached
-        }).collect();
+        let source_events: Vec<_> = events
+            .iter()
+            .filter(|e| e.kind == EventKind::SourcePassageAttached)
+            .collect();
         assert_eq!(source_events.len(), 1);
         assert_eq!(source_events[0].turn_id, first.turn_id);
         let anchor: crate::evidence_passages::PassageAnchor =
@@ -813,7 +836,9 @@ mod tests {
         let calls = engine.provider.calls.lock().unwrap();
         assert_eq!(calls.len(), 8);
         for call in calls.iter().skip(4) {
-            assert!(!call.iter().any(|m| m.content.contains("USER_SELECTED_SOURCE_PASSAGES_JSON")));
+            assert!(!call
+                .iter()
+                .any(|m| m.content.contains("USER_SELECTED_SOURCE_PASSAGES_JSON")));
         }
         assert_eq!(engine.store().conversation(&session.id).unwrap().len(), 4);
     }
@@ -824,25 +849,61 @@ mod tests {
         let mut engine = engine();
         let body = "Example excerpt from stored evidence";
         let hash = format!("{:x}", Sha256::digest(body.as_bytes()));
-        let evidence = engine.store().record_external_evidence(
-            "https://www.rfc-editor.org/rfc/rfc9111.txt",
-            "www.rfc-editor.org", "text/plain", &hash, body,
-        ).unwrap();
-        let session = engine.store().create_session(Mode::Solo, Agent::Buddy).unwrap();
+        let evidence = engine
+            .store()
+            .record_external_evidence(
+                "https://www.rfc-editor.org/rfc/rfc9111.txt",
+                "www.rfc-editor.org",
+                "text/plain",
+                &hash,
+                body,
+            )
+            .unwrap();
+        let session = engine
+            .store()
+            .create_session(Mode::Solo, Agent::Buddy)
+            .unwrap();
         let cancel = CancelFlag::new(false);
-        let bad = PassageSelection { evidence_id: evidence.id.clone(), start_line: 1, end_line: 99 };
-        assert!(engine.run_observed_with_references(
-            &session, "Q", CouncilDepth::Quick,
-            TurnReferences { memory_ids: &[], passages: &[bad] },
-            &cancel, &mut |_| {},
-        ).is_err());
-        assert!(engine.store().delete_external_evidence(&evidence.id).unwrap());
-        let deleted = PassageSelection { evidence_id: evidence.id, start_line: 1, end_line: 1 };
-        assert!(engine.run_observed_with_references(
-            &session, "Q", CouncilDepth::Quick,
-            TurnReferences { memory_ids: &[], passages: &[deleted] },
-            &cancel, &mut |_| {},
-        ).is_err());
+        let bad = PassageSelection {
+            evidence_id: evidence.id.clone(),
+            start_line: 1,
+            end_line: 99,
+        };
+        assert!(engine
+            .run_observed_with_references(
+                &session,
+                "Q",
+                CouncilDepth::Quick,
+                TurnReferences {
+                    memory_ids: &[],
+                    passages: &[bad]
+                },
+                &cancel,
+                &mut |_| {},
+            )
+            .is_err());
+        assert!(engine
+            .store()
+            .delete_external_evidence(&evidence.id)
+            .unwrap());
+        let deleted = PassageSelection {
+            evidence_id: evidence.id,
+            start_line: 1,
+            end_line: 1,
+        };
+        assert!(engine
+            .run_observed_with_references(
+                &session,
+                "Q",
+                CouncilDepth::Quick,
+                TurnReferences {
+                    memory_ids: &[],
+                    passages: &[deleted]
+                },
+                &cancel,
+                &mut |_| {},
+            )
+            .is_err());
         assert!(engine.store().events(&session.id).unwrap().is_empty());
         assert!(engine.provider.calls.lock().unwrap().is_empty());
     }

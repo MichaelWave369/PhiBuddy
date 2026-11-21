@@ -123,11 +123,17 @@ mod tests {
     #[test]
     fn line_quote_matches_stored_bytes_and_includes_provenance() {
         let (store, id) = seeded();
-        let selection = PassageSelection { evidence_id: id, start_line: 1, end_line: 2 };
+        let selection = PassageSelection {
+            evidence_id: id,
+            start_line: 1,
+            end_line: 2,
+        };
         let passage = preview_passage(&store, &selection).unwrap();
         assert_eq!(passage.quote, "alpha\r\nbeta\r");
         assert_eq!(passage.status, "retrieved_not_fact_checked");
-        let (context, anchors) = selected_passage_context(&store, &[selection.clone()]).unwrap().unwrap();
+        let (context, anchors) = selected_passage_context(&store, &[selection.clone()])
+            .unwrap()
+            .unwrap();
         assert_eq!(anchors.len(), 1);
         assert_eq!(anchors[0].selection, selection);
         assert!(context.contains("UNTRUSTED DATA"));
@@ -139,10 +145,18 @@ mod tests {
     fn rejects_out_of_bounds_and_deleted_sources_without_side_effects() {
         let (store, id) = seeded();
         for (start, end) in [(0, 1), (3, 2), (1, 200)] {
-            let selection = PassageSelection { evidence_id: id.clone(), start_line: start, end_line: end };
+            let selection = PassageSelection {
+                evidence_id: id.clone(),
+                start_line: start,
+                end_line: end,
+            };
             assert!(preview_passage(&store, &selection).is_err());
         }
-        let selection = PassageSelection { evidence_id: id.clone(), start_line: 1, end_line: 2 };
+        let selection = PassageSelection {
+            evidence_id: id.clone(),
+            start_line: 1,
+            end_line: 2,
+        };
         assert!(selected_passage_context(&store, &[selection.clone(), selection.clone()]).is_err());
         assert!(store.delete_external_evidence(&id).unwrap());
         assert!(preview_passage(&store, &selection).is_err());
@@ -154,20 +168,32 @@ mod tests {
         let store = Store::in_memory().unwrap();
         let text = "x".repeat(1601);
         let hash = format!("{:x}", Sha256::digest(text.as_bytes()));
-        let source = store.record_external_evidence(
-            "https://www.rfc-editor.org/rfc/rfc9111.txt",
-            "www.rfc-editor.org",
-            "text/plain",
-            &hash,
-            &text,
-        ).unwrap();
-        assert!(preview_passage(&store, &PassageSelection {
-            evidence_id: source.id, start_line: 1, end_line: 1
-        }).is_err());
+        let source = store
+            .record_external_evidence(
+                "https://www.rfc-editor.org/rfc/rfc9111.txt",
+                "www.rfc-editor.org",
+                "text/plain",
+                &hash,
+                &text,
+            )
+            .unwrap();
+        assert!(preview_passage(
+            &store,
+            &PassageSelection {
+                evidence_id: source.id,
+                start_line: 1,
+                end_line: 1
+            }
+        )
+        .is_err());
         let (store, id) = seeded();
-        let selections = (1..=4).map(|n| PassageSelection {
-            evidence_id: id.clone(), start_line: n, end_line: n
-        }).collect::<Vec<_>>();
+        let selections = (1..=4)
+            .map(|n| PassageSelection {
+                evidence_id: id.clone(),
+                start_line: n,
+                end_line: n,
+            })
+            .collect::<Vec<_>>();
         assert!(selected_passage_context(&store, &selections).is_err());
     }
 }
