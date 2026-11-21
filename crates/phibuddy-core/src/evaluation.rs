@@ -132,6 +132,73 @@ pub fn evaluate_case<P: ModelProvider>(
     })
 }
 
+/// Ratings are provided by a human reviewer. They are not generated or
+/// independently verified by PhiBuddy.
+#[derive(Clone, Debug, Deserialize)]
+pub struct RatingSheet {
+    pub ratings: Vec<HumanRating>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct HumanRating {
+    pub case_id: String,
+    pub solo_score: u8,
+    pub council_score: u8,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct RatingSummary {
+    pub rated_cases: usize,
+    pub score_scale: &'static str,
+    pub evidence_type: &'static str,
+    pub solo_mean: f64,
+    pub council_mean: f64,
+    pub solo_wins: usize,
+    pub council_wins: usize,
+    pub ties: usize,
+}
+
+/// Aggregates an exact set of case IDs. Missing, extra, repeated, or out-of-range
+/// ratings are errors rather than silently biasing a comparison.
+pub fn summarize_ratings(report_ids: &[String], sheet: &RatingSheet) -> Result<RatingSummary> {
+    if report_ids.is_empty() || report_ids.len() > 50 {
+        return Err("report must contain 1 to 50 cases".into());
+    }
+    let expected: HashSet<&str> = report_ids.iter().map(String::as_str).collect();
+    if expected.len() != report_ids.len() || sheet.ratings.len() != report_ids.len() {
+        return Err("report and ratings must contain the same unique case IDs".into());
+    }
+    let mut seen = HashSet::new();
+    let mut solo_total = 0usize;
+    let mut council_total = 0usize;
+    let (mut solo_wins, mut council_wins, mut ties) = (0, 0, 0);
+    for rating in &sheet.ratings {
+        if !expected.contains(rating.case_id.as_str()) || !seen.insert(rating.case_id.as_str()) {
+            return Err(format!("unknown or repeated rated case ID: {}", rating.case_id).into());
+        }
+        if rating.solo_score > 5 || rating.council_score > 5 {
+            return Err(format!("rating for {} must be in the range 0 to 5", rating.case_id).into());
+        }
+        solo_total += rating.solo_score as usize;
+        council_total += rating.council_score as usize;
+        match rating.council_score.cmp(&rating.solo_score) {
+            std::cmp::Ordering::Greater => council_wins += 1,
+            std::cmp::Ordering::Less => solo_wins += 1,
+            std::cmp::Ordering::Equal => ties += 1,
+        }
+    }
+    Ok(RatingSummary {
+        rated_cases: report_ids.len(),
+        score_scale: "0..5",
+        evidence_type: "human_supplied_unverified",
+        solo_mean: solo_total as f64 / report_ids.len() as f64,
+        council_mean: council_total as f64 / report_ids.len() as f64,
+        solo_wins,
+        council_wins,
+        ties,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,6 +262,33 @@ mod tests {
         assert_eq!(engine.store().list_sessions().unwrap().len(), 2);
         let json = serde_json::to_string(&record).unwrap();
         assert!(json.contains("solo_first"));
+    }
+
+    #[test]
+    fn human_rating_summary_requires_complete_valid_case_set() {
+        let cases = vec!["alpha".to_string(), "beta".to_string()];
+        let sheet = RatingSheet { ratings: vec![
+            HumanRating { case_id: "alpha".into(), solo_score: 3, council_score: 4 },
+            HumanRating { case_id: "beta".into(), solo_score: 5, council_score: 2 },
+        ] };
+        let summary = summarize_ratings(&cases, &sheet).unwrap();
+        assert_eq!(summary.rated_cases, 2);
+        assert_eq!(summary.solo_mean, 4.0);
+        assert_eq!(summary.council_mean, 3.0);
+        assert_eq!(summary.solo_wins, 1);
+        assert_eq!(summary.council_wins, 1);
+        let missing = RatingSheet { ratings: vec![sheet.ratings[0].clone()] };
+        assert!(summarize_ratings(&cases, &missing).is_err());
+        let duplicate = RatingSheet { ratings: vec![
+            sheet.ratings[0].clone(),
+            sheet.ratings[0].clone(),
+        ] };
+        assert!(summarize_ratings(&cases, &duplicate).is_err());
+        let invalid = RatingSheet { ratings: vec![
+            HumanRating { case_id: "alpha".into(), solo_score: 6, council_score: 4 },
+            sheet.ratings[1].clone(),
+        ] };
+        assert!(summarize_ratings(&cases, &invalid).is_err());
     }
 
     #[test]
