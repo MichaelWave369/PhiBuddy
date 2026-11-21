@@ -91,17 +91,15 @@ impl<P: ModelProvider> Engine<P> {
         messages.push(Message::new("system", agent.system_prompt()));
         messages.extend_from_slice(history);
         messages.push(Message::new("user", task));
-        let answer = self.provider.complete_streaming(
-            &messages,
-            cancel,
-            &mut |delta: &str| {
+        let answer = self
+            .provider
+            .complete_streaming(&messages, cancel, &mut |delta: &str| {
                 on_progress(TurnProgress::Delta {
                     agent: agent.as_str().to_string(),
                     phase: kind.as_str().to_string(),
                     text: delta.to_string(),
                 });
-            },
-        )?;
+            })?;
         check_cancel(cancel)?;
         if answer.trim().is_empty() {
             return Err("model returned an empty response".into());
@@ -126,19 +124,12 @@ impl<P: ModelProvider> Engine<P> {
             phase: kind.as_str().to_string(),
         });
         let mut partial = String::new();
-        let answer = match self.ask(
-            agent,
-            kind,
-            history,
-            task,
-            cancel,
-            &mut |event| {
-                if let TurnProgress::Delta { text, .. } = &event {
-                    partial.push_str(text);
-                }
-                on_progress(event);
-            },
-        ) {
+        let answer = match self.ask(agent, kind, history, task, cancel, &mut |event| {
+            if let TurnProgress::Delta { text, .. } = &event {
+                partial.push_str(text);
+            }
+            on_progress(event);
+        }) {
             Ok(answer) => answer,
             Err(err) => {
                 // No incomplete output is ever treated as conversation context.
@@ -306,7 +297,13 @@ impl<P: ModelProvider> Engine<P> {
             turn_id: turn_id.clone(),
         });
         let (answer, contributions) = match self.execute(
-            &session, &turn_id, &history, input, depth, cancel, on_progress,
+            &session,
+            &turn_id,
+            &history,
+            input,
+            depth,
+            cancel,
+            on_progress,
         ) {
             Ok(result) => result,
             Err(err) => {
@@ -496,7 +493,6 @@ mod tests {
         assert_eq!(engine.provider.calls.lock().unwrap().len(), 3);
         assert!(result.answer.contains("No files or commands were changed"));
     }
-
 
     #[test]
     fn observed_debate_emits_stage_and_delta_updates() {

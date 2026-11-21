@@ -3,8 +3,8 @@
 
 pub mod agents;
 pub mod engine;
-pub mod store;
 pub mod progress;
+pub mod store;
 
 pub type BuddyError = Box<dyn std::error::Error + Send + Sync>;
 pub type Result<T> = std::result::Result<T, BuddyError>;

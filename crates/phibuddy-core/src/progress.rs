@@ -1,7 +1,7 @@
 //! Ephemeral progress notifications and cooperative cancellation.
-use std::sync::atomic::{AtomicBool, Ordering};
-use serde::Serialize;
 use crate::Result;
+use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub type CancelFlag = AtomicBool;
 
@@ -27,8 +27,20 @@ pub fn check_cancel(cancel: &CancelFlag) -> Result<()> {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum TurnProgress {
-    TurnStarted { turn_id: String },
-    StageStarted { agent: String, phase: String },
-    Delta { agent: String, phase: String, text: String },
-    StageFinished { agent: String, phase: String },
+    TurnStarted {
+        turn_id: String,
+    },
+    StageStarted {
+        agent: String,
+        phase: String,
+    },
+    Delta {
+        agent: String,
+        phase: String,
+        text: String,
+    },
+    StageFinished {
+        agent: String,
+        phase: String,
+    },
 }
