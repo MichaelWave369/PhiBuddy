@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.0-alpha.1 (draft, not released)
+
+- Added exact line-range passage previews from saved external evidence snapshots, verified against the stored SHA-256 before being shown or used.
+- Added separate explicit passage selection (up to 3 per turn, up to 1600 characters each, 6000 total characters including context wrapper), never automatic retrieval or carryover.
+- Added a source attachment audit event containing only the snapshot ID, inclusive line range and fingerprint, not the quote text.
+- Added a turn source inspector which reconstructs quotes from the current saved snapshot and labels missing/changed/deleted source material as unavailable.
+- Updated orchestration so identical selected source passages reach all Council calls, while remaining absent from completed conversation history unless the model repeats them.
+- Distinguished exact source quotes, AI inferences, and unverified claims; independent factual verification still does not exist.
+- Added source range, digest, deleted-source, opt-in, reuse and inspector regression tests. No new agent execution privileges.
+
+
 ## 0.8.0-alpha.1 (draft source, not released)
 
 - Added a user-triggered external text evidence registry for two allowlisted URL families: GitHub Raw and RFC Editor plain-text RFCs.

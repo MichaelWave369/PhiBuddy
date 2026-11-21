@@ -1,4 +1,4 @@
-# PhiBuddy Desktop v0.8 source alpha
+# PhiBuddy Desktop v0.9 source alpha
 
 A Tauri 2 + React workbench built on the existing `phibuddy-core` Rust library.
 
@@ -39,7 +39,7 @@ npm run desktop
 - Rust core: from repository root, `cargo test --workspace`.
 - Manual: launch Ollama, start a Quick Council turn, verify three independent draft cards and one synthesis; repeat with Debate (three critiques). Close and reopen, confirm history and events persist.
 
-**Security:** Fifteen narrow Tauri commands are registered. Agent responses are plain text and are not executed or rendered as HTML. The capability manifest grants only Tauri core APIs. The local Ollama endpoint is hardcoded to `127.0.0.1:11434`. Tool execution remains absent.
+**Security:** Seventeen narrow Tauri commands are registered. Agent responses are plain text and are not executed or rendered as HTML. The capability manifest grants only Tauri core APIs. The local Ollama endpoint is hardcoded to `127.0.0.1:11434`. Tool execution remains absent.
 
 ## Memory Workshop v0.6
 
@@ -58,6 +58,14 @@ See [v0.7 design, ranking limitations and smoke tests](../../docs/MEMORY_DISCOVE
 The **Evidence** tab supports explicit retrieval of two safe-to-parse categories of **public HTTPS plaintext**: `raw.githubusercontent.com` files and RFC Editor `/rfc/rfcNNN.txt` documents. Captured content is stored in the local SQLite registry with URL, timestamp and SHA-256. You can inspect the exact text, distinguish it from user notes, and delete a snapshot. **No agent has a fetch or browse capability.** Retrieval is not fact-checking and snapshots are not injected into prompts.
 
 Read [the v0.8 source and test boundaries](../../docs/EVIDENCE_REGISTRY_V0.8.md).
+
+## Source passage reasoning v0.9
+
+Open a saved source in **Evidence**, select a 1-based inclusive start/end line range and click **Preview exact passage**. Verify the exact quote, then independently click **Attach this passage to next turn**. At most three snippets may be attached to one message, and the core enforces the 6,000-character serialized context cap.
+
+In **Contributions** or **Timeline**, the current turn's passage anchor is resolved from the local evidence registry. Missing or altered snapshots show unavailable rather than an invented quote. Source text is never automatically retrieved or attached. A quote is not a fact check.
+
+See [source passage architecture, safety, and tests](../../docs/SOURCE_PASSAGES_V0.9.md).
 
 ## Streaming v0.4 acceptance
 
