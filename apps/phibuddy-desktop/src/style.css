@@ -44,3 +44,13 @@ select{width:100%;color:#e8eef5;background:#162335;border:1px solid #304157;bord
 .turn-sources{border-bottom:1px solid #2c4153;padding-bottom:14px;margin-bottom:15px}
 .turn-sources h3{font-size:13px;color:#a2ebd7;margin:0 0 7px}
 .source-record{margin-bottom:8px}
+
+/* v0.7: transparent lexical memory discovery, never automatic attachment. */
+.suggestion-results{padding:14px 0;border-block:1px solid #2c4558;display:flex;flex-direction:column;gap:8px}
+.suggestion-results h3,.verified-evidence h3{font-size:13px;color:#91ead4;margin:0}
+.suggestion-results .hint{margin:0}
+.suggestion-card{padding:12px;background:#142b38;border:1px solid #416275;border-radius:9px;overflow-wrap:anywhere}
+.suggested-query,.suggested-match{font-size:11px;line-height:1.5;color:#bdd7de;margin:2px 0}
+.memory-age-warning{border-left:2px solid #d8a66e;padding-left:9px;color:#eac8a2;font-size:11px;line-height:1.5;margin:9px 0}
+.verified-evidence{border-bottom:1px solid #2c4153;padding-bottom:13px;margin-bottom:14px}
+.verified-evidence .hint{margin:7px 0 0}

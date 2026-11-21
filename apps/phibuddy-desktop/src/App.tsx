@@ -13,6 +13,14 @@ type MemoryRecord = {
   source_ref: string | null; created_at: string;
 };
 type TurnMemoryRef = { id: string; memory: MemoryRecord | null };
+type MemorySuggestion = {
+  note: MemoryRecord;
+  relevance_score: number;
+  matched_terms: string[];
+  age_days: number | null;
+  review_recommended: boolean;
+  provenance_status: "unverified_user_note";
+};
 
 type Agent = "buddy" | "homie" | "dude";
 type Mode = "solo" | "council" | "workshop";
@@ -58,6 +66,9 @@ export default function App() {
   const [turnMemoryRefs, setTurnMemoryRefs] = useState<TurnMemoryRef[]>([]);
   const [memoryRevision, setMemoryRevision] = useState(0);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [suggestedNotes, setSuggestedNotes] = useState<MemorySuggestion[]>([]);
+  const [suggestedFor, setSuggestedFor] = useState("");
+  const [suggesting, setSuggesting] = useState(false);
   const [selectedTurn, setSelectedTurn] = useState<string | null>(null);
 
   const active = sessions.find((s) => s.id === activeId);
@@ -108,6 +119,8 @@ export default function App() {
       setMemoryDraft("");
       setMemorySource("");
       setMemorySearch("");
+      setSuggestedNotes([]);
+      setSuggestedFor("");
       await loadMemories();
       setMemoryRevision((n) => n + 1);
     } catch (e) { setMemoryError(errorText(e)); }
@@ -121,6 +134,7 @@ export default function App() {
     try {
       await invoke<boolean>("delete_memory", { memoryId: id });
       setSelectedMemoryIds((ids) => ids.filter((value) => value !== id));
+      setSuggestedNotes((items) => items.filter((item) => item.note.id !== id));
       setPendingDelete(null);
       await loadMemories(memorySearch);
       setMemoryRevision((n) => n + 1);
@@ -138,6 +152,26 @@ export default function App() {
     setSelectedMemoryIds((ids) =>
       ids.includes(id) ? ids.filter((value) => value !== id) : [...ids, id]
     );
+  }
+
+  async function suggestFromDraft() {
+    if (busy || memoryBusy || suggesting) return;
+    const query = prompt.trim();
+    if (!query) return;
+    setInspector("memory");
+    setMemoryError("");
+    setSuggesting(true);
+    try {
+      const found = await invoke<MemorySuggestion[]>("suggest_memories", { query });
+      setSuggestedNotes(found);
+      setSuggestedFor(query);
+    } catch (e) {
+      setSuggestedNotes([]);
+      setSuggestedFor("");
+      setMemoryError(errorText(e));
+    } finally {
+      setSuggesting(false);
+    }
   }
 
   async function reloadSessions() {
@@ -208,6 +242,8 @@ export default function App() {
   async function newSession() {
     if (busy || memoryBusy) return;
     setSelectedMemoryIds([]);
+    setSuggestedNotes([]);
+    setSuggestedFor("");
     setError("");
     try {
       const session = await invoke<Session>("create_session", { mode, agent });
@@ -222,6 +258,8 @@ export default function App() {
   async function openSession(id: string) {
     if (busy || memoryBusy) return;
     setSelectedMemoryIds([]);
+    setSuggestedNotes([]);
+    setSuggestedFor("");
     setError("");
     try {
       await loadSession(id);
@@ -235,6 +273,8 @@ export default function App() {
     // Each message requires a fresh explicit choice; do not silently reuse notes.
     const memoryIds = [...selectedMemoryIds];
     setSelectedMemoryIds([]);
+    setSuggestedNotes([]);
+    setSuggestedFor("");
     setActiveMemoryCount(memoryIds.length);
     setBusy(true);
     setCancelRequested(false);
@@ -356,13 +396,21 @@ export default function App() {
               : "No memory notes attached by default"}</span>
             <button type="button" disabled={busy || memoryBusy}
               onClick={() => setInspector("memory")}>Choose notes</button>
+            <button type="button" disabled={busy || memoryBusy || suggesting || !prompt.trim()}
+              onClick={() => void suggestFromDraft()}>
+              {suggesting ? "Finding…" : "Find related notes"}
+            </button>
             {selectedMemoryIds.length > 0 && <button type="button" disabled={busy}
               onClick={() => setSelectedMemoryIds([])}>Clear</button>}
           </div>
           {error && <div className="error" role="alert">{error}</div>}
           <label className="sr-only" htmlFor="prompt">Your message</label>
           <textarea id="prompt" rows={4} maxLength={20000} value={prompt}
-            disabled={!active || busy} onChange={(e) => setPrompt(e.target.value)}
+            disabled={!active || busy} onChange={(e) => {
+              setPrompt(e.target.value);
+              setSuggestedNotes([]);
+              setSuggestedFor("");
+            }}
             onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void submit(); } }}
             placeholder={active ? "Ask the crew anything… (Ctrl+Enter to send)" : "Create a session to begin"} />
           <div className="composer-actions"><small>Human approval required for future execution tools.</small>
@@ -394,7 +442,34 @@ export default function App() {
         <div className="inspector-scroll">
           {inspector === "memory" ? (
             <section className="memory-workshop">
-              <p className="hint">Notes are saved only when you ask. Check specific notes to attach them to the <strong>next</strong> message. Sources are user-supplied, not independently verified.</p>
+              <p className="hint">Notes are saved only when you ask. Choose up to five for the <strong>next</strong> message. Search suggestions are local text matches, never an automatic selection.</p>
+              <section className="suggestion-results" aria-label="Memory suggestions">
+                <h3>Related notes from your draft</h3>
+                <p className="hint">Press <strong>Find related notes</strong> below the chat to search the local ledger. Nothing gets sent to Ollama until you explicitly attach a note and send the message.</p>
+                {suggestedFor && <p className="suggested-query">Searched draft: {suggestedFor.length > 100 ? suggestedFor.slice(0, 100) + "…" : suggestedFor}</p>}
+                {suggestedFor && suggestedNotes.length === 0 && <p className="hint">No matching saved notes.</p>}
+                {suggestedNotes.map((match) => (
+                  <article className="suggestion-card" key={match.note.id}>
+                    <label className="memory-note-select">
+                      <input type="checkbox" checked={selectedMemoryIds.includes(match.note.id)}
+                        disabled={busy || memoryBusy} onChange={() => toggleMemory(match.note.id)} />
+                      <strong>Attach next turn</strong>
+                    </label>
+                    <div className="memory-note-body">{match.note.content}</div>
+                    <p className="suggested-match">Text match score: {match.relevance_score} · Matched: {match.matched_terms.join(", ")}</p>
+                    <div className="memory-source-label">
+                      Unverified user note · {match.note.source_ref || "No source label"} · {match.note.created_at}
+                    </div>
+                    {match.review_recommended && <p className="memory-age-warning">
+                      Review recommended: {match.age_days === null
+                        ? "date could not be determined"
+                        : `${match.age_days} days since saving (90+ day threshold)`}.
+                      Age does not establish whether a note is true or false.
+                    </p>}
+                    <small className="memory-id">ID: {match.note.id}</small>
+                  </article>
+                ))}
+              </section>
               {memoryError && <p className="error" role="alert">{memoryError}</p>}
               <label htmlFor="memory-draft">New memory note</label>
               <textarea id="memory-draft" value={memoryDraft} maxLength={4096} rows={3}
@@ -447,18 +522,22 @@ export default function App() {
             <>
               {turnMemoryRefs.length > 0 && <section className="turn-sources">
                 <h3>Notes attached to this turn</h3>
-                <p className="hint">Selected user notes, not verified citations. The model may or may not have relied on them.</p>
+                <p className="hint">Selected notes are user-provided, unverified context. This inspector proves attachment, not model reliance or factual accuracy.</p>
                 {turnMemoryRefs.map((item) => (
                   <article className="source-record" key={item.id}>
                     <div className="memory-source-label">{item.memory
-                      ? `User note · ${item.memory.source_ref || "No source label"}`
+                      ? `Unverified user note · ${item.memory.source_ref || "No source label"}`
                       : "Note no longer in active ledger"}</div>
                     <div className="memory-note-body">{item.memory?.content ?? "(Content unavailable after deletion)"}</div>
                     <small className="memory-id">{item.id}</small>
                   </article>
                 ))}
               </section>}
-              {inspector === "contributions" ? (
+              <section className="verified-evidence">
+                <h3>Independently verified external sources</h3>
+                <p className="hint">None. This version has no external verification connector. A URL or source label on a saved note does not make it a verified citation.</p>
+              </section>
+                            {inspector === "contributions" ? (
             contributions.length ? contributions.map((e) =>
               <article className="evidence" key={e.sequence}>
                 <div className="evidence-label">{e.actor ?? "system"} · {e.kind.replaceAll("_", " ")}</div>
