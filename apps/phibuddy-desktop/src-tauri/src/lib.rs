@@ -1,12 +1,14 @@
 //! Tauri commands are intentionally narrow and do not expose OS tools.
 //! The CLI and desktop both call the same phibuddy-core engine and SQLite store.
 
+mod evidence_fetch;
+
 use phibuddy_core::{
     agents::{Agent, Mode},
     engine::{CouncilDepth, Engine},
     memory_discovery::{rank_suggestions, MemorySuggestion},
     progress::{check_cancel, CancelFlag, TurnProgress},
-    store::{EventKind, MemoryRecord, RecordedEvent, SavedMessage, Session, Store},
+    store::{EvidenceRecord, EventKind, MemoryRecord, RecordedEvent, SavedMessage, Session, Store},
     Message, ModelProvider,
 };
 use reqwest::{blocking::Client, Url};
@@ -315,6 +317,42 @@ fn get_turn_memories(
     resolve_turn_memories(engine.store(), &session_id, &turn_id)
 }
 
+/// This is a deliberate user action, never agent-executed browsing. Network
+/// fetch happens outside the SQLite/engine lock, preserving cancellation.
+#[tauri::command]
+async fn fetch_external_evidence(
+    state: State<'_, DesktopState>,
+    url: String,
+) -> Result<EvidenceRecord, String> {
+    let engine = state.engine.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let fetched = evidence_fetch::fetch_text(&url)?;
+        let engine = engine.lock().map_err(|_| "engine lock poisoned".to_string())?;
+        engine.store().record_external_evidence(
+            &fetched.url,
+            &fetched.host,
+            &fetched.content_type,
+            &fetched.sha256,
+            &fetched.content,
+        ).map_err(|e| e.to_string())
+    }).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn list_external_evidence(state: State<'_, DesktopState>) -> Result<Vec<EvidenceRecord>, String> {
+    let engine = state.engine.lock().map_err(|_| "engine lock poisoned".to_string())?;
+    engine.store().list_external_evidence(20).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_external_evidence(
+    state: State<'_, DesktopState>,
+    evidence_id: String,
+) -> Result<bool, String> {
+    let engine = state.engine.lock().map_err(|_| "engine lock poisoned".to_string())?;
+    engine.store().delete_external_evidence(&evidence_id).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn check_ollama(state: State<'_, DesktopState>) -> Result<String, String> {
     let engine = state.engine.clone();
@@ -406,7 +444,8 @@ pub fn run() {
             get_sessions, create_session, get_messages, get_events,
             check_ollama, send_prompt, cancel_turn,
             list_memories, save_memory, delete_memory, get_turn_memories,
-            suggest_memories
+            suggest_memories,
+            fetch_external_evidence, list_external_evidence, delete_external_evidence
         ])
         .run(tauri::generate_context!())
         .expect("PhiBuddy desktop startup failed");
