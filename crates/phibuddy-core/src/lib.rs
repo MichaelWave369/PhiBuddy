@@ -3,6 +3,7 @@
 
 pub mod agents;
 pub mod engine;
+pub mod evaluation;
 pub mod progress;
 pub mod store;
 
