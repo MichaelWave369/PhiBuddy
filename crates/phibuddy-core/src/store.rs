@@ -26,6 +26,26 @@ pub struct SavedMessage {
     pub content: String,
 }
 
+/// User-entered memory. Source references are user-supplied labels, not verified evidence.
+#[derive(Clone, Debug, Serialize)]
+pub struct MemoryRecord {
+    pub id: String,
+    pub content: String,
+    pub source_kind: String,
+    pub source_ref: Option<String>,
+    pub created_at: String,
+}
+
+fn read_memory_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MemoryRecord> {
+    Ok(MemoryRecord {
+        id: row.get(0)?,
+        content: row.get(1)?,
+        source_kind: row.get(2)?,
+        source_ref: row.get(3)?,
+        created_at: row.get(4)?,
+    })
+}
+
 /// Stable event names. Adding a variant requires a schema-version review.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -147,8 +167,18 @@ impl Store {
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             CREATE INDEX IF NOT EXISTS events_session_idx ON deliberation_events(session_id, sequence);
-            CREATE INDEX IF NOT EXISTS events_turn_idx ON deliberation_events(turn_id, sequence);",
+            CREATE INDEX IF NOT EXISTS events_turn_idx ON deliberation_events(turn_id, sequence);
+            CREATE TABLE IF NOT EXISTS memory_notes (
+                id TEXT PRIMARY KEY,
+                content TEXT NOT NULL CHECK(length(trim(content)) > 0),
+                source_kind TEXT NOT NULL CHECK(source_kind IN ('user_explicit')),
+                source_ref TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS memory_notes_created_idx
+                ON memory_notes(created_at);",
         )?;
+        conn.pragma_update(None, "secure_delete", "ON")?;
         Ok(Self { conn })
     }
 
@@ -238,6 +268,78 @@ impl Store {
             .filter(|m| m.role == "user" || m.role == "assistant")
             .map(|m| Message::new(m.role, m.content))
             .collect())
+    }
+
+    /// Explicit memory entry. Nothing is automatically extracted from model replies.
+    pub fn remember_manual(&self, content: &str, source_ref: Option<&str>) -> Result<MemoryRecord> {
+        let content = content.trim();
+        if content.is_empty() || content.chars().count() > 4096 {
+            return Err("memory must be between 1 and 4096 characters".into());
+        }
+        let source_ref = source_ref.map(str::trim).filter(|value| !value.is_empty());
+        if source_ref.is_some_and(|value| value.chars().count() > 1024) {
+            return Err("memory source label exceeds 1024 characters".into());
+        }
+        let id = Uuid::new_v4().to_string();
+        self.conn.execute(
+            "INSERT INTO memory_notes(id, content, source_kind, source_ref)
+             VALUES (?1, ?2, 'user_explicit', ?3)",
+            params![id, content, source_ref],
+        )?;
+        self.get_memory(&id)?
+            .ok_or_else(|| "saved memory disappeared".into())
+    }
+
+    pub fn get_memory(&self, id: &str) -> Result<Option<MemoryRecord>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT id, content, source_kind, source_ref, created_at
+             FROM memory_notes WHERE id = ?1",
+                [id],
+                read_memory_row,
+            )
+            .optional()?)
+    }
+
+    pub fn list_memories(&self, limit: usize) -> Result<Vec<MemoryRecord>> {
+        let limit = limit.clamp(1, 200) as i64;
+        let mut stmt = self.conn.prepare(
+            "SELECT id, content, source_kind, source_ref, created_at
+             FROM memory_notes ORDER BY created_at DESC, rowid DESC LIMIT ?1",
+        )?;
+        let rows = stmt
+            .query_map([limit], read_memory_row)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// A literal substring lookup (case-insensitive for SQLite's built-in ASCII rules).
+    /// Deliberately no semantic embeddings or automatic prompt insertion.
+    pub fn search_memories(&self, query: &str, limit: usize) -> Result<Vec<MemoryRecord>> {
+        let query = query.trim();
+        if query.is_empty() || query.chars().count() > 1024 {
+            return Err("memory search requires a query of 1 to 1024 characters".into());
+        }
+        let limit = limit.clamp(1, 200) as i64;
+        let mut stmt = self.conn.prepare(
+            "SELECT id, content, source_kind, source_ref, created_at
+             FROM memory_notes WHERE instr(lower(content), lower(?1)) > 0
+             ORDER BY created_at DESC, rowid DESC LIMIT ?2",
+        )?;
+        let rows = stmt
+            .query_map(params![query, limit], read_memory_row)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Deletes a record from the active database. Backups and forensic remnants
+    /// are outside this API; never claim guaranteed complete erasure.
+    pub fn forget_memory(&self, id: &str) -> Result<bool> {
+        Ok(self
+            .conn
+            .execute("DELETE FROM memory_notes WHERE id = ?1", [id])?
+            > 0)
     }
 
     pub fn new_turn_id() -> String {
@@ -405,6 +507,64 @@ mod tests {
         let json = serde_json::to_string(&events[1]).unwrap();
         assert!(json.contains("solo_answer"));
         assert_eq!(events[0].schema_version, 1);
+    }
+
+    #[test]
+    fn explicit_memory_is_source_labeled_searchable_and_deletable() {
+        let store = Store::in_memory().unwrap();
+        let memory = store
+            .remember_manual(
+                "Buddy should challenge unsupported claims",
+                Some("my notes"),
+            )
+            .unwrap();
+        assert_eq!(memory.source_kind, "user_explicit");
+        assert_eq!(memory.source_ref.as_deref(), Some("my notes"));
+        assert_eq!(store.list_memories(10).unwrap().len(), 1);
+        assert_eq!(store.search_memories("UNSUPPORTED", 5).unwrap().len(), 1);
+        assert!(store.search_memories("unrelated", 5).unwrap().is_empty());
+        assert!(store.forget_memory(&memory.id).unwrap());
+        assert!(!store.forget_memory(&memory.id).unwrap());
+        assert!(store.list_memories(10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn manual_memory_survives_restart_and_forget_remains_deleted() {
+        let tmp =
+            std::env::temp_dir().join(format!("phibuddy-memory-reopen-{}.sqlite3", Uuid::new_v4()));
+        let id = {
+            let store = Store::open(&tmp).unwrap();
+            store
+                .remember_manual("A remembered fact with its own source", Some("test note"))
+                .unwrap()
+                .id
+        };
+        {
+            let store = Store::open(&tmp).unwrap();
+            let note = store.get_memory(&id).unwrap().unwrap();
+            assert_eq!(note.content, "A remembered fact with its own source");
+            assert_eq!(note.source_kind, "user_explicit");
+            assert!(store.forget_memory(&id).unwrap());
+        }
+        {
+            let store = Store::open(&tmp).unwrap();
+            assert!(store.get_memory(&id).unwrap().is_none());
+        }
+        let _ = std::fs::remove_file(&tmp);
+        let _ = std::fs::remove_file(tmp.with_extension("sqlite3-wal"));
+        let _ = std::fs::remove_file(tmp.with_extension("sqlite3-shm"));
+    }
+
+    #[test]
+    fn invalid_memory_inputs_are_rejected_without_writes() {
+        let store = Store::in_memory().unwrap();
+        assert!(store.remember_manual("   ", None).is_err());
+        assert!(store.remember_manual(&"x".repeat(4097), None).is_err());
+        assert!(store
+            .remember_manual("valid", Some(&"x".repeat(1025)))
+            .is_err());
+        assert!(store.search_memories(" ", 10).is_err());
+        assert!(store.list_memories(10).unwrap().is_empty());
     }
 
     #[test]

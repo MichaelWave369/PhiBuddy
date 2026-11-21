@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand};
 use phibuddy_core::{
     agents::{Agent, Mode},
     engine::{CouncilDepth, Engine},
+    evaluation::{evaluate_case, summarize_ratings, EvalOrder, EvalSuite, RatingSheet},
     store::Store,
     Message, ModelProvider, Result,
 };
@@ -13,6 +14,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::{
     env,
+    fs::{self, OpenOptions},
     io::{self, Write},
     path::PathBuf,
     str::FromStr,
@@ -77,6 +79,51 @@ enum Command {
     },
     /// Check that the configured Ollama service is reachable.
     Check,
+    /// Run the same prompts through Solo and Council into a new local JSONL report.
+    Eval {
+        #[arg(long)]
+        cases: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long, default_value = "quick")]
+        depth: String,
+    },
+    /// Summarize complete human ratings for a saved Council Lab report.
+    EvalScore {
+        #[arg(long)]
+        report: PathBuf,
+        #[arg(long)]
+        ratings: PathBuf,
+    },
+    /// Explicit user-managed notes; never automatically extracted by an agent.
+    Memory {
+        #[command(subcommand)]
+        action: MemoryCommand,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum MemoryCommand {
+    /// Save an explicit note. Source labels are user-supplied, not verified references.
+    Add {
+        #[arg(long)]
+        text: String,
+        #[arg(long)]
+        source_ref: Option<String>,
+    },
+    /// List recent notes (up to 200).
+    List {
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
+    /// Literal substring search. No embeddings or automatic model retrieval.
+    Search {
+        query: String,
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
+    /// Delete a note from the active SQLite table by ID.
+    Forget { id: String },
 }
 
 struct Ollama {
@@ -170,11 +217,100 @@ fn default_db() -> PathBuf {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    if let Command::Eval {
+        cases,
+        output,
+        depth,
+    } = &cli.command
+    {
+        let suite: EvalSuite = serde_json::from_str(&fs::read_to_string(cases)?)?;
+        suite.validate()?;
+        let depth = CouncilDepth::from_str(depth)?;
+        if cli.model.to_ascii_lowercase().contains("cloud") {
+            return Err(
+                "Council Lab requires a local Ollama model name; cloud tags are disabled".into(),
+            );
+        }
+        // Evaluation never writes test conversations into the user's history DB.
+        let provider = Ollama::new(&cli.endpoint, cli.model.clone())?;
+        let mut lab = Engine::new(provider, Store::in_memory()?);
+        // An existing report is never silently overwritten. If Ollama fails midway,
+        // completed JSONL case records remain recoverable.
+        let mut writer = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(output)?;
+        for (index, case) in suite.cases.iter().enumerate() {
+            let order = if index % 2 == 0 {
+                EvalOrder::SoloFirst
+            } else {
+                EvalOrder::CouncilFirst
+            };
+            let record = evaluate_case(&mut lab, case, depth, order)?;
+            let row = json!({
+                "format_version": 1,
+                "model": &cli.model,
+                "evaluation": record,
+            });
+            writeln!(writer, "{}", serde_json::to_string(&row)?)?;
+            writer.flush()?;
+            println!("Completed {}/{}: {}", index + 1, suite.cases.len(), case.id);
+        }
+        println!("Saved local comparison report: {}", output.display());
+        return Ok(());
+    }
+
+    if let Command::EvalScore { report, ratings } = &cli.command {
+        let content = fs::read_to_string(report)?;
+        let mut case_ids = Vec::new();
+        for line in content.lines().filter(|line| !line.trim().is_empty()) {
+            let row: serde_json::Value = serde_json::from_str(line)?;
+            let case_id = row
+                .get("evaluation")
+                .and_then(|value| value.get("case_id"))
+                .and_then(serde_json::Value::as_str)
+                .ok_or("report row is missing evaluation.case_id")?;
+            case_ids.push(case_id.to_string());
+        }
+        let sheet: RatingSheet = serde_json::from_str(&fs::read_to_string(ratings)?)?;
+        let summary = summarize_ratings(&case_ids, &sheet)?;
+        println!("{}", serde_json::to_string_pretty(&summary)?);
+        return Ok(());
+    }
+
     let provider = Ollama::new(&cli.endpoint, cli.model)?;
     let store = Store::open(cli.db.unwrap_or_else(default_db))?;
     let mut engine = Engine::new(provider, store);
 
     match cli.command {
+        Command::Eval { .. } | Command::EvalScore { .. } => {
+            unreachable!("evaluation commands are handled before database initialization")
+        }
+        Command::Memory { action } => match action {
+            MemoryCommand::Add { text, source_ref } => {
+                let entry = engine
+                    .store()
+                    .remember_manual(&text, source_ref.as_deref())?;
+                println!("{}", serde_json::to_string_pretty(&entry)?);
+            }
+            MemoryCommand::List { limit } => {
+                let notes = engine.store().list_memories(limit)?;
+                println!("{}", serde_json::to_string_pretty(&notes)?);
+            }
+            MemoryCommand::Search { query, limit } => {
+                let notes = engine.store().search_memories(&query, limit)?;
+                println!("{}", serde_json::to_string_pretty(&notes)?);
+            }
+            MemoryCommand::Forget { id } => {
+                let deleted = engine.store().forget_memory(&id)?;
+                if deleted {
+                    println!("Deleted memory note {} from the active database.", id);
+                } else {
+                    println!("No active memory note matches {}.", id);
+                }
+            }
+        },
         Command::Check => {
             engine.provider().check()?;
             println!("Ollama is reachable on the local machine.");

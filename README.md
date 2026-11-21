@@ -2,7 +2,7 @@
 
 **Buddy · Homie · Dude** · An open-source, local-first Rust collaboration app from PHI369 Labs.
 
-PhiBuddy v0.2 is a **CLI and Rust core**, not a completed desktop app. It uses one locally running Ollama model in sequential calls. All three agent identities are role prompts and orchestrated workflows, not conscious persons or separately trained models.
+PhiBuddy has a **Rust CLI, reusable core, and Tauri 2 + React desktop preview**. It uses one locally running Ollama model in sequential calls. All three agent identities are role prompts and orchestrated workflows, not conscious persons or separately trained models.
 
 ## Already implemented
 
@@ -12,7 +12,7 @@ PhiBuddy v0.2 is a **CLI and Rust core**, not a completed desktop app. It uses o
 - No shell execution, browser actions, filesystem edits, API keys, autonomous agents, or GitHub writes.
 - Unit tests for mode routing, independent drafts, critique round, SQLite events, schema migration, and provider failure.
 
-## Desktop workbench preview (v0.3, draft PR)
+## Desktop workbench preview (v0.3)
 
 An opt-in **Tauri 2 + React desktop preview** now lives in [apps/phibuddy-desktop](apps/phibuddy-desktop/README.md). It shares the existing Rust core and local SQLite sessions. The UI displays the original Council drafts, critiques, and event timeline. It is a source preview, **not a published installer or tested hardware release**.
 
@@ -26,9 +26,23 @@ npm run desktop
 
 The desktop is restricted to local Ollama, and no agent can execute commands or edit files. See [the desktop architecture and test checklist](docs/DESKTOP_V0.3.md). The CLI below remains fully supported.
 
-## Live desktop streaming (v0.4 draft)
+## Live desktop streaming (v0.4)
 
-The desktop now supports real Ollama token streaming through Tauri channels, per-agent stage status, and a Cancel run button. Incomplete stages are traceable but **never** enter completed conversation history. This is an unmerged development feature; see [streaming design and acceptance checklist](docs/STREAMING_V0.4.md).
+The desktop now supports real Ollama token streaming through Tauri channels, per-agent stage status, and a Cancel run button. Incomplete stages are traceable but **never** enter completed conversation history. See [streaming design and acceptance checklist](docs/STREAMING_V0.4.md).
+
+## Council Lab and user-managed memory (v0.5 draft)
+
+The CLI now supports `eval` for side-by-side Solo-versus-Council experiments and `memory` for explicitly saved, source-labeled notes. These are *separate* features: benchmarks never add to your regular chat history, and memory notes are **not** automatically injected into agent prompts.
+
+```powershell
+cargo run -p phibuddy -- eval --cases docs/eval_suite_smoke.json --output council-quick.jsonl
+cargo run -p phibuddy -- eval-score --report council-quick.jsonl --ratings my-human-ratings.json
+cargo run -p phibuddy -- memory add --text "Be careful with unsupported claims" --source-ref "personal note"
+cargo run -p phibuddy -- memory list
+cargo run -p phibuddy -- memory search "claims"
+```
+
+See [Council Lab design](docs/COUNCIL_LAB_V0.5.md) and [Memory ledger guide](docs/MEMORY_V0.5.md). The benchmark report contains full prompts and answers; handle it as private data. The memory database is unencrypted.
 
 ## Run the CLI on Windows 11
 
@@ -75,6 +89,6 @@ See [Architecture](docs/ARCHITECTURE.md), [Validation](docs/VALIDATION.md) and [
 
 ## What comes later
 
-Desktop streaming, sourced memory, security policy, sandboxed tools, optional PhiOS adapters, XR and voice are **design proposals**, not implemented features. We reviewed external architectural proposals from Grok, Claude and Hydrogen but intentionally kept this first build small and testable.
+Automated source-backed memory retrieval, security policy, sandboxed tools, optional PhiOS adapters, XR and voice are **design proposals**, not implemented features. We reviewed external architectural proposals from Grok, Claude and Hydrogen but intentionally kept this first build small and testable.
 
 MIT License. Copyright (c) 2026 Michael Hughes.
