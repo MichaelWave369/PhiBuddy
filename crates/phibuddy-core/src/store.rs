@@ -354,7 +354,14 @@ impl Store {
             "INSERT INTO external_evidence
              (id, source_url, source_host, content_type, content_sha256, content)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![id, source_url, source_host, content_type, content_sha256, content],
+            params![
+                id,
+                source_url,
+                source_host,
+                content_type,
+                content_sha256,
+                content
+            ],
         )?;
         self.get_external_evidence(&id)?
             .ok_or_else(|| "saved evidence disappeared".into())
@@ -380,7 +387,10 @@ impl Store {
     }
 
     pub fn delete_external_evidence(&self, id: &str) -> Result<bool> {
-        Ok(self.conn.execute("DELETE FROM external_evidence WHERE id = ?1", [id])? > 0)
+        Ok(self
+            .conn
+            .execute("DELETE FROM external_evidence WHERE id = ?1", [id])?
+            > 0)
     }
 
     /// Explicit memory entry. Nothing is automatically extracted from model replies.
@@ -701,13 +711,15 @@ mod tests {
     #[test]
     fn external_evidence_is_separate_from_manual_memories_and_deletable() {
         let store = Store::in_memory().unwrap();
-        let record = store.record_external_evidence(
-            "https://www.rfc-editor.org/rfc/rfc9111.txt",
-            "www.rfc-editor.org",
-            "text/plain",
-            &format!("{:x}", Sha256::digest(b"RFC example body")),
-            "RFC example body",
-        ).unwrap();
+        let record = store
+            .record_external_evidence(
+                "https://www.rfc-editor.org/rfc/rfc9111.txt",
+                "www.rfc-editor.org",
+                "text/plain",
+                &format!("{:x}", Sha256::digest(b"RFC example body")),
+                "RFC example body",
+            )
+            .unwrap();
         assert_eq!(record.status, "retrieved_not_fact_checked");
         assert_eq!(record.content, "RFC example body");
         assert_eq!(store.list_external_evidence(10).unwrap().len(), 1);
@@ -720,25 +732,29 @@ mod tests {
 
     #[test]
     fn evidence_fingerprint_mismatch_is_rejected_and_snapshot_survives_reopen() {
-        let path = std::env::temp_dir().join(format!(
-            "phibuddy-evidence-{}.sqlite3", Uuid::new_v4()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("phibuddy-evidence-{}.sqlite3", Uuid::new_v4()));
         let id = {
             let store = Store::open(&path).unwrap();
-            assert!(store.record_external_evidence(
-                "https://www.rfc-editor.org/rfc/rfc9111.txt",
-                "www.rfc-editor.org",
-                "text/plain",
-                &"0".repeat(64),
-                "A verified byte string",
-            ).is_err());
-            store.record_external_evidence(
-                "https://www.rfc-editor.org/rfc/rfc9111.txt",
-                "www.rfc-editor.org",
-                "text/plain",
-                &format!("{:x}", Sha256::digest(b"Example source text")),
-                "Example source text",
-            ).unwrap().id
+            assert!(store
+                .record_external_evidence(
+                    "https://www.rfc-editor.org/rfc/rfc9111.txt",
+                    "www.rfc-editor.org",
+                    "text/plain",
+                    &"0".repeat(64),
+                    "A verified byte string",
+                )
+                .is_err());
+            store
+                .record_external_evidence(
+                    "https://www.rfc-editor.org/rfc/rfc9111.txt",
+                    "www.rfc-editor.org",
+                    "text/plain",
+                    &format!("{:x}", Sha256::digest(b"Example source text")),
+                    "Example source text",
+                )
+                .unwrap()
+                .id
         };
         {
             let store = Store::open(&path).unwrap();
@@ -758,16 +774,21 @@ mod tests {
     #[test]
     fn external_evidence_input_limits_and_schema_addition() {
         let store = Store::in_memory().unwrap();
-        assert!(store.record_external_evidence(
-            "url", "host", "text/plain", "invalid", "text"
-        ).is_err());
-        assert!(store.record_external_evidence(
-            "url", "host", "text/plain", &"0".repeat(64), ""
-        ).is_err());
-        assert!(store.record_external_evidence(
-            "url", "host", "text/plain", &"0".repeat(64),
-            &"x".repeat(262_145),
-        ).is_err());
+        assert!(store
+            .record_external_evidence("url", "host", "text/plain", "invalid", "text")
+            .is_err());
+        assert!(store
+            .record_external_evidence("url", "host", "text/plain", &"0".repeat(64), "")
+            .is_err());
+        assert!(store
+            .record_external_evidence(
+                "url",
+                "host",
+                "text/plain",
+                &"0".repeat(64),
+                &"x".repeat(262_145),
+            )
+            .is_err());
         assert!(store.list_external_evidence(10).unwrap().is_empty());
     }
 
