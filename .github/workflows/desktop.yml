@@ -34,3 +34,4 @@ jobs:
       - run: npm run build
         working-directory: apps/phibuddy-desktop
       - run: cargo check --manifest-path apps/phibuddy-desktop/src-tauri/Cargo.toml
+      - run: cargo test --manifest-path apps/phibuddy-desktop/src-tauri/Cargo.toml

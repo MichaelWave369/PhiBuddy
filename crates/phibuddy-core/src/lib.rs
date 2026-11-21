@@ -3,6 +3,7 @@
 
 pub mod agents;
 pub mod engine;
+pub mod progress;
 pub mod store;
 
 pub type BuddyError = Box<dyn std::error::Error + Send + Sync>;
@@ -27,4 +28,18 @@ impl Message {
 /// A provider implements one completion request. The engine controls all routing.
 pub trait ModelProvider {
     fn complete(&self, messages: &[Message]) -> Result<String>;
+
+    /// Streaming is optional for providers; old CLI providers still work.
+    fn complete_streaming(
+        &self,
+        messages: &[Message],
+        cancel: &progress::CancelFlag,
+        on_delta: &mut dyn FnMut(&str),
+    ) -> Result<String> {
+        progress::check_cancel(cancel)?;
+        let answer = self.complete(messages)?;
+        progress::check_cancel(cancel)?;
+        on_delta(&answer);
+        Ok(answer)
+    }
 }

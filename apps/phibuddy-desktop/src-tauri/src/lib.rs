@@ -4,6 +4,7 @@
 use phibuddy_core::{
     agents::{Agent, Mode},
     engine::{CouncilDepth, Engine},
+    progress::{check_cancel, CancelFlag, TurnProgress},
     store::{RecordedEvent, SavedMessage, Session, Store},
     Message, ModelProvider,
 };
@@ -12,12 +13,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
     env,
+    io::{BufRead, BufReader},
     path::PathBuf,
     str::FromStr,
-    sync::{Arc, Mutex},
+    sync::{atomic::Ordering, Arc, Mutex},
     time::Duration,
 };
-use tauri::{Manager, State};
+use tauri::{ipc::Channel, Manager, State};
 
 struct Ollama {
     model: String,
@@ -30,6 +32,13 @@ struct OllamaReply { message: OllamaMessage }
 
 #[derive(Deserialize)]
 struct OllamaMessage { content: String }
+
+#[derive(Deserialize)]
+struct OllamaStreamChunk {
+    message: Option<OllamaMessage>,
+    done: Option<bool>,
+    error: Option<String>,
+}
 
 /// Fail closed for obvious cloud-backed Ollama model tags. This is a guard,
 /// not proof that a renamed alias or provider uses only local inference.
@@ -61,6 +70,45 @@ impl Ollama {
     }
 }
 
+/// Decode NDJSON frames independently of HTTP for deterministic testing.
+fn read_stream<R: BufRead>(
+    reader: R,
+    cancel: &CancelFlag,
+    on_delta: &mut dyn FnMut(&str),
+) -> phibuddy_core::Result<String> {
+    let mut text = String::new();
+    let mut finished = false;
+    for line in reader.lines() {
+        check_cancel(cancel)?;
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let frame: OllamaStreamChunk = serde_json::from_str(&line)?;
+        if let Some(error) = frame.error {
+            return Err(format!("Ollama stream error: {error}").into());
+        }
+        if let Some(message) = frame.message {
+            if !message.content.is_empty() {
+                text.push_str(&message.content);
+                on_delta(&message.content);
+            }
+        }
+        if frame.done.unwrap_or(false) {
+            finished = true;
+            break;
+        }
+    }
+    check_cancel(cancel)?;
+    if !finished {
+        return Err("Ollama stream ended before a done frame".into());
+    }
+    if text.trim().is_empty() {
+        return Err("Ollama returned an empty response".into());
+    }
+    Ok(text)
+}
+
 impl ModelProvider for Ollama {
     fn complete(&self, messages: &[Message]) -> phibuddy_core::Result<String> {
         let payload = messages.iter().map(|m| json!({
@@ -74,10 +122,27 @@ impl ModelProvider for Ollama {
         }
         Ok(result.message.content)
     }
+
+    fn complete_streaming(
+        &self,
+        messages: &[Message],
+        cancel: &CancelFlag,
+        on_delta: &mut dyn FnMut(&str),
+    ) -> phibuddy_core::Result<String> {
+        check_cancel(cancel)?;
+        let payload = messages.iter().map(|m| json!({
+            "role": m.role, "content": m.content
+        })).collect::<Vec<_>>();
+        let response = self.client.post(self.endpoint.join("api/chat")?)
+            .json(&json!({"model": self.model, "messages": payload, "stream": true}))
+            .send()?.error_for_status()?;
+        read_stream(BufReader::new(response), cancel, on_delta)
+    }
 }
 
 struct DesktopState {
     engine: Arc<Mutex<Engine<Ollama>>>,
+    active_cancel: Arc<Mutex<Option<Arc<CancelFlag>>>>,
 }
 
 #[derive(Serialize)]
@@ -179,20 +244,56 @@ async fn check_ollama(state: State<'_, DesktopState>) -> Result<String, String> 
     }).await.map_err(|e| e.to_string())?
 }
 
+/// Independent of the engine lock: this can stop a run while Ollama is generating.
+#[tauri::command]
+fn cancel_turn(state: State<'_, DesktopState>) -> Result<bool, String> {
+    let active = state.active_cancel.lock().map_err(|_| "cancellation lock poisoned".to_string())?;
+    if let Some(cancel) = active.as_ref() {
+        cancel.store(true, Ordering::Release);
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
 #[tauri::command]
 async fn send_prompt(
     state: State<'_, DesktopState>,
     session_id: String,
     input: String,
     depth: String,
+    on_progress: Channel<TurnProgress>,
 ) -> Result<TurnView, String> {
     let depth = CouncilDepth::from_str(&depth)?;
+    if input.trim().is_empty() || input.chars().count() > 20_000 {
+        return Err("enter a prompt between 1 and 20,000 characters".into());
+    }
+    let cancel = Arc::new(CancelFlag::new(false));
+    {
+        let mut active = state.active_cancel.lock().map_err(|_| "cancellation lock poisoned".to_string())?;
+        if active.is_some() {
+            return Err("another turn is already running".into());
+        }
+        *active = Some(cancel.clone());
+    }
+    let active = state.active_cancel.clone();
     let engine = state.engine.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    let task = tauri::async_runtime::spawn_blocking(move || {
         let mut engine = engine.lock().map_err(|_| "engine lock poisoned".to_string())?;
         let session = engine.store().get_session(&session_id)
             .map_err(|e| e.to_string())?.ok_or("unknown session ID")?;
-        let turn = engine.run_with_depth(&session, &input, depth).map_err(|e| e.to_string())?;
+        let disconnected = cancel.clone();
+        let turn = engine.run_observed(
+            &session,
+            &input,
+            depth,
+            &cancel,
+            &mut |progress| {
+                if on_progress.send(progress).is_err() {
+                    disconnected.store(true, Ordering::Release);
+                }
+            },
+        ).map_err(|e| e.to_string())?;
         Ok::<TurnView, String>(TurnView {
             turn_id: turn.turn_id,
             answer: turn.answer,
@@ -202,7 +303,10 @@ async fn send_prompt(
                 text: c.text,
             }).collect(),
         })
-    }).await.map_err(|e| e.to_string())?
+    }).await;
+    // The slot is released after success, failure, or a worker panic.
+    *active.lock().map_err(|_| "cancellation lock poisoned".to_string())? = None;
+    task.map_err(|e| e.to_string())?
 }
 
 pub fn run() {
@@ -212,12 +316,13 @@ pub fn run() {
             let store = Store::open(default_db()).map_err(|e| -> Box<dyn std::error::Error> { e })?;
             app.manage(DesktopState {
                 engine: Arc::new(Mutex::new(Engine::new(provider, store))),
+                active_cancel: Arc::new(Mutex::new(None)),
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_sessions, create_session, get_messages, get_events,
-            check_ollama, send_prompt
+            check_ollama, send_prompt, cancel_turn
         ])
         .run(tauri::generate_context!())
         .expect("PhiBuddy desktop startup failed");
@@ -225,7 +330,47 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_model_name;
+    use super::{read_stream, validate_model_name};
+    use phibuddy_core::progress::CancelFlag;
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn streamed_ndjson_preserves_order_and_complete_text() {
+        let sample = concat!(
+            "{\"message\":{\"content\":\"Hello \"},\"done\":false}\n",
+            "{\"message\":{\"content\":\"crew!\"},\"done\":false}\n",
+            "{\"done\":true}\n",
+        );
+        let flag = CancelFlag::new(false);
+        let mut pieces = Vec::new();
+        let answer = read_stream(sample.as_bytes(), &flag, &mut |delta| {
+            pieces.push(delta.to_string());
+        })
+        .unwrap();
+        assert_eq!(answer, "Hello crew!");
+        assert_eq!(pieces, vec!["Hello ", "crew!"]);
+    }
+
+    #[test]
+    fn interrupted_or_malformed_ndjson_never_looks_complete() {
+        let flag = CancelFlag::new(false);
+        let incomplete = "{\"message\":{\"content\":\"partial\"},\"done\":false}\n";
+        assert!(read_stream(incomplete.as_bytes(), &flag, &mut |_| {}).is_err());
+        let malformed = "{this is not json}\n";
+        assert!(read_stream(malformed.as_bytes(), &flag, &mut |_| {}).is_err());
+    }
+
+    #[test]
+    fn cancellation_rejects_even_a_completed_stream() {
+        let flag = CancelFlag::new(true);
+        let valid = "{\"message\":{\"content\":\"ignored\"},\"done\":true}\n";
+        assert!(read_stream(valid.as_bytes(), &flag, &mut |_| {}).is_err());
+        flag.store(false, Ordering::Release);
+        assert_eq!(
+            read_stream(valid.as_bytes(), &flag, &mut |_| {}).unwrap(),
+            "ignored"
+        );
+    }
 
     #[test]
     fn local_model_name_guard() {

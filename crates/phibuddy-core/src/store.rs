@@ -40,6 +40,8 @@ pub enum EventKind {
     WorkshopBuild,
     TurnCompleted,
     TurnFailed,
+    TurnCancelled,
+    StagePartial,
 }
 
 impl EventKind {
@@ -55,6 +57,8 @@ impl EventKind {
             Self::WorkshopBuild => "workshop_build",
             Self::TurnCompleted => "turn_completed",
             Self::TurnFailed => "turn_failed",
+            Self::TurnCancelled => "turn_cancelled",
+            Self::StagePartial => "stage_partial",
         }
     }
 }
@@ -73,6 +77,8 @@ impl FromStr for EventKind {
             "workshop_build" => Ok(Self::WorkshopBuild),
             "turn_completed" => Ok(Self::TurnCompleted),
             "turn_failed" => Ok(Self::TurnFailed),
+            "turn_cancelled" => Ok(Self::TurnCancelled),
+            "stage_partial" => Ok(Self::StagePartial),
             _ => Err(format!("unknown event kind: {s}")),
         }
     }

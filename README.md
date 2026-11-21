@@ -26,6 +26,10 @@ npm run desktop
 
 The desktop is restricted to local Ollama, and no agent can execute commands or edit files. See [the desktop architecture and test checklist](docs/DESKTOP_V0.3.md). The CLI below remains fully supported.
 
+## Live desktop streaming (v0.4 draft)
+
+The desktop now supports real Ollama token streaming through Tauri channels, per-agent stage status, and a Cancel run button. Incomplete stages are traceable but **never** enter completed conversation history. This is an unmerged development feature; see [streaming design and acceptance checklist](docs/STREAMING_V0.4.md).
+
 ## Run the CLI on Windows 11
 
 Prerequisites: Rust stable toolchain (`cargo --version`), Ollama (`ollama list`) and an installed model. `qwen3:4b` is the default and can be changed using `--model`.
