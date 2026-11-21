@@ -5,7 +5,8 @@ mod evidence_fetch;
 
 use phibuddy_core::{
     agents::{Agent, Mode},
-    engine::{CouncilDepth, Engine},
+    engine::{CouncilDepth, Engine, TurnReferences},
+    evidence_passages::{preview_passage, PassageAnchor, PassagePreview, PassageSelection},
     memory_discovery::{rank_suggestions, MemorySuggestion},
     progress::{check_cancel, CancelFlag, TurnProgress},
     store::{EvidenceRecord, EventKind, MemoryRecord, RecordedEvent, SavedMessage, Session, Store},
@@ -189,6 +190,12 @@ struct TurnMemoryRef {
 }
 
 #[derive(Serialize)]
+struct TurnPassageRef {
+    anchor: PassageAnchor,
+    preview: Option<PassagePreview>,
+}
+
+#[derive(Serialize)]
 struct ContributionView {
     agent: String,
     phase: String,
@@ -360,6 +367,51 @@ fn delete_external_evidence(
     engine.store().delete_external_evidence(&evidence_id).map_err(|e| e.to_string())
 }
 
+/// A preview is a local SQLite read only: no URL fetching or model inference.
+#[tauri::command]
+fn preview_evidence_passage(
+    state: State<'_, DesktopState>,
+    evidence_id: String,
+    start_line: usize,
+    end_line: usize,
+) -> Result<PassagePreview, String> {
+    let engine = state.engine.lock().map_err(|_| "engine lock poisoned".to_string())?;
+    preview_passage(engine.store(), &PassageSelection {
+        evidence_id, start_line, end_line,
+    }).map_err(|e| e.to_string())
+}
+
+fn resolve_turn_passages(
+    store: &Store,
+    session_id: &str,
+    turn_id: &str,
+) -> Result<Vec<TurnPassageRef>, String> {
+    if store.get_session(session_id).map_err(|e| e.to_string())?.is_none() {
+        return Err("unknown session ID".into());
+    }
+    store.events(session_id).map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|e| e.turn_id == turn_id && e.kind == EventKind::SourcePassageAttached)
+        .map(|e| {
+            let anchor: PassageAnchor = serde_json::from_str(&e.content)
+                .map_err(|error| format!("malformed source anchor: {error}"))?;
+            // A changed or deleted source cannot be represented as the original quote.
+            let preview = preview_passage(store, &anchor.selection).ok()
+                .filter(|p| p.sha256 == anchor.sha256);
+            Ok(TurnPassageRef { anchor, preview })
+        }).collect()
+}
+
+#[tauri::command]
+fn get_turn_passages(
+    state: State<'_, DesktopState>,
+    session_id: String,
+    turn_id: String,
+) -> Result<Vec<TurnPassageRef>, String> {
+    let engine = state.engine.lock().map_err(|_| "engine lock poisoned".to_string())?;
+    resolve_turn_passages(engine.store(), &session_id, &turn_id)
+}
+
 #[tauri::command]
 async fn check_ollama(state: State<'_, DesktopState>) -> Result<String, String> {
     let engine = state.engine.clone();
@@ -388,6 +440,7 @@ async fn send_prompt(
     input: String,
     depth: String,
     memory_ids: Vec<String>,
+    passage_selections: Vec<PassageSelection>,
     on_progress: Channel<TurnProgress>,
 ) -> Result<TurnView, String> {
     let depth = CouncilDepth::from_str(&depth)?;
@@ -409,11 +462,14 @@ async fn send_prompt(
         let session = engine.store().get_session(&session_id)
             .map_err(|e| e.to_string())?.ok_or("unknown session ID")?;
         let disconnected = cancel.clone();
-        let turn = engine.run_observed_with_memories(
+        let turn = engine.run_observed_with_references(
             &session,
             &input,
             depth,
-            &memory_ids,
+            TurnReferences {
+                memory_ids: &memory_ids,
+                passages: &passage_selections,
+            },
             &cancel,
             &mut |progress| {
                 if on_progress.send(progress).is_err() {
@@ -452,7 +508,8 @@ pub fn run() {
             check_ollama, send_prompt, cancel_turn,
             list_memories, save_memory, delete_memory, get_turn_memories,
             suggest_memories,
-            fetch_external_evidence, list_external_evidence, delete_external_evidence
+            fetch_external_evidence, list_external_evidence, delete_external_evidence,
+            preview_evidence_passage, get_turn_passages
         ])
         .run(tauri::generate_context!())
         .expect("PhiBuddy desktop startup failed");
@@ -460,12 +517,14 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{read_stream, resolve_turn_memories, validate_model_name};
+    use super::{read_stream, resolve_turn_memories, resolve_turn_passages, validate_model_name};
     use phibuddy_core::{
         agents::{Agent, Mode},
+        evidence_passages::PassageSelection,
         progress::CancelFlag,
         store::{EventKind, Store},
     };
+    use sha2::{Digest, Sha256};
     use std::sync::atomic::Ordering;
 
     #[test]
@@ -482,6 +541,36 @@ mod tests {
         assert!(!suggestions[0].matched_terms.is_empty());
         assert_eq!(store.list_memories(10).unwrap().len(), before);
         assert!(store.list_sessions().unwrap().is_empty());
+    }
+
+    #[test]
+    fn passage_inspector_displays_exact_quote_until_snapshot_deleted() {
+        let store = Store::in_memory().unwrap();
+        let session = store.create_session(Mode::Solo, Agent::Buddy).unwrap();
+        let content = "first sentence\nsecond sentence\nthird sentence";
+        let digest = format!("{:x}", Sha256::digest(content.as_bytes()));
+        let saved = store.record_external_evidence(
+            "https://www.rfc-editor.org/rfc/rfc9111.txt",
+            "www.rfc-editor.org", "text/plain", &digest, content,
+        ).unwrap();
+        let selection = PassageSelection {
+            evidence_id: saved.id.clone(), start_line: 2, end_line: 2,
+        };
+        let turn_id = Store::new_turn_id();
+        let anchor = phibuddy_core::evidence_passages::PassageAnchor {
+            selection, sha256: digest,
+        };
+        store.append_event(
+            &session.id, &turn_id, EventKind::SourcePassageAttached,
+            None, &serde_json::to_string(&anchor).unwrap(),
+        ).unwrap();
+        let result = resolve_turn_passages(&store, &session.id, &turn_id).unwrap();
+        assert_eq!(result[0].preview.as_ref().unwrap().quote, "second sentence");
+        assert!(!store.events(&session.id).unwrap()[0].content.contains("second sentence"));
+        assert!(store.delete_external_evidence(&saved.id).unwrap());
+        let deleted = resolve_turn_passages(&store, &session.id, &turn_id).unwrap();
+        assert!(deleted[0].preview.is_none());
+        assert!(resolve_turn_passages(&store, "unknown", &turn_id).is_err());
     }
 
     #[test]
