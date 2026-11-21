@@ -286,7 +286,7 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Eval { .. } | Command::EvalScore { .. } => {
             unreachable!("evaluation commands are handled before database initialization")
-        },
+        }
         Command::Memory { action } => match action {
             MemoryCommand::Add { text, source_ref } => {
                 let entry = engine

@@ -177,7 +177,9 @@ pub fn summarize_ratings(report_ids: &[String], sheet: &RatingSheet) -> Result<R
             return Err(format!("unknown or repeated rated case ID: {}", rating.case_id).into());
         }
         if rating.solo_score > 5 || rating.council_score > 5 {
-            return Err(format!("rating for {} must be in the range 0 to 5", rating.case_id).into());
+            return Err(
+                format!("rating for {} must be in the range 0 to 5", rating.case_id).into(),
+            );
         }
         solo_total += rating.solo_score as usize;
         council_total += rating.council_score as usize;
@@ -267,27 +269,44 @@ mod tests {
     #[test]
     fn human_rating_summary_requires_complete_valid_case_set() {
         let cases = vec!["alpha".to_string(), "beta".to_string()];
-        let sheet = RatingSheet { ratings: vec![
-            HumanRating { case_id: "alpha".into(), solo_score: 3, council_score: 4 },
-            HumanRating { case_id: "beta".into(), solo_score: 5, council_score: 2 },
-        ] };
+        let sheet = RatingSheet {
+            ratings: vec![
+                HumanRating {
+                    case_id: "alpha".into(),
+                    solo_score: 3,
+                    council_score: 4,
+                },
+                HumanRating {
+                    case_id: "beta".into(),
+                    solo_score: 5,
+                    council_score: 2,
+                },
+            ],
+        };
         let summary = summarize_ratings(&cases, &sheet).unwrap();
         assert_eq!(summary.rated_cases, 2);
         assert_eq!(summary.solo_mean, 4.0);
         assert_eq!(summary.council_mean, 3.0);
         assert_eq!(summary.solo_wins, 1);
         assert_eq!(summary.council_wins, 1);
-        let missing = RatingSheet { ratings: vec![sheet.ratings[0].clone()] };
+        let missing = RatingSheet {
+            ratings: vec![sheet.ratings[0].clone()],
+        };
         assert!(summarize_ratings(&cases, &missing).is_err());
-        let duplicate = RatingSheet { ratings: vec![
-            sheet.ratings[0].clone(),
-            sheet.ratings[0].clone(),
-        ] };
+        let duplicate = RatingSheet {
+            ratings: vec![sheet.ratings[0].clone(), sheet.ratings[0].clone()],
+        };
         assert!(summarize_ratings(&cases, &duplicate).is_err());
-        let invalid = RatingSheet { ratings: vec![
-            HumanRating { case_id: "alpha".into(), solo_score: 6, council_score: 4 },
-            sheet.ratings[1].clone(),
-        ] };
+        let invalid = RatingSheet {
+            ratings: vec![
+                HumanRating {
+                    case_id: "alpha".into(),
+                    solo_score: 6,
+                    council_score: 4,
+                },
+                sheet.ratings[1].clone(),
+            ],
+        };
         assert!(summarize_ratings(&cases, &invalid).is_err());
     }
 
