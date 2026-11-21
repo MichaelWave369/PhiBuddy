@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0-alpha.1 (draft source, not released)
+
+- Added on-demand, deterministic local lexical relevance suggestions from saved user notes, with exact matched terms and integer text-match scores.
+- Added creation-age review warnings at 90+ days or when a saved date cannot be parsed. Age alone does not establish whether a note is false or outdated.
+- Added a desktop **Find related notes** action. Results are previews only; every attachment still requires a separate user selection for the next turn.
+- Distinguished unverified user notes from **zero** independently verified external references in the source inspector; no web retrieval or citation verification is implied.
+- Added unit tests for deterministic ranking, stopwords, input bounds, recency-review markers, and no-memory-attachment side effects.
+- No new model prompts, autonomous tools, external APIs, or SQLite schema changes.
+
+
 ## 0.6.0-alpha.1 (draft source, not released)
 
 - Added a desktop Memory Workshop using the explicit v0.5 local SQLite memory ledger.

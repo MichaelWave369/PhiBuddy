@@ -1,4 +1,4 @@
-# PhiBuddy security boundaries (v0.5 alpha)
+# PhiBuddy security boundaries (v0.7 alpha)
 
 PhiBuddy is a prototype, **not a vetted secure execution platform**. The active surfaces are a Rust CLI and Tauri desktop preview. Both call a local Ollama API and write **unencrypted** SQLite state. The desktop streams text but does not give models shell or GitHub execution permissions.
 
@@ -6,6 +6,9 @@ PhiBuddy is a prototype, **not a vetted secure execution platform**. The active 
 - Agents only generate text. Their proposals must never be mistaken for performed changes.
 - The Ollama endpoint argument is limited to localhost/loopback HTTP, but the separate Ollama process may have its own network settings. The app does not guarantee that all model side effects or configuration are offline.
 - Conversation history and raw per-agent drafts/criticisms are stored in SQLite unencrypted. Users control filesystem access and backup policy. `events --jsonl` may reveal sensitive local prompts if redirected or shared.
+- v0.7 local suggestions are computed only after the user presses **Find related notes**. It ranks a bounded set of saved notes using literal token overlap and gives **no** model access to suggestions until the user independently selects a note and submits a turn. Scores describe text similarity, not trust, accuracy, or truth.
+- Age-based review warnings (90+ days, or invalid saved timestamps) are heuristics. They do not prove a note is stale, dangerous, or wrong; newer notes are not automatically reliable.
+- The evidence panel currently has **no independently verified external source records**, even if the user types a URL-looking source label. No webpage fetch, authenticity check, or external source verification is performed.
 - v0.6 desktop allows users to explicitly select up to five saved notes as **untrusted reference context for exactly one turn**. The native engine validates IDs against the active SQLite ledger, enforces a context-size limit, and records only ID-based attachment events. It does not automatically search, collect, or reuse notes.
 - An assistant could repeat selected note content in saved answers, critiques, or partial output; deletion of the original memory row does not erase those derived copies. References labeled `[memory:…]` by the model are **model-generated and not verified citations**.
 - Desktop note management adds only narrowly scoped local SQLite commands, not arbitrary filesystem, shell, GitHub, or external network access.
