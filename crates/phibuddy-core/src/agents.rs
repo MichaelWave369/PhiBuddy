@@ -1,7 +1,11 @@
 use std::{fmt, str::FromStr};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Agent { Buddy, Homie, Dude }
+pub enum Agent {
+    Buddy,
+    Homie,
+    Dude,
+}
 
 /// Stable crew facts supplied with every model request, even in Solo mode.
 /// In v0.1, missing these facts caused the model to guess that Homie/Dude meant slang.
@@ -26,7 +30,11 @@ impl Agent {
     pub const ALL: [Self; 3] = [Self::Buddy, Self::Homie, Self::Dude];
 
     pub fn as_str(self) -> &'static str {
-        match self { Self::Buddy => "buddy", Self::Homie => "homie", Self::Dude => "dude" }
+        match self {
+            Self::Buddy => "buddy",
+            Self::Homie => "homie",
+            Self::Dude => "dude",
+        }
     }
 
     /// Combines shared project facts with the active specialist role.
@@ -44,38 +52,58 @@ impl Agent {
 }
 
 impl fmt::Display for Agent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{}", self.as_str()) }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
 }
 
 impl FromStr for Agent {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_ascii_lowercase().as_str() {
-            "buddy" => Ok(Self::Buddy), "homie" => Ok(Self::Homie), "dude" => Ok(Self::Dude),
-            _ => Err(format!("unknown agent '{s}'; expected buddy, homie or dude")),
+            "buddy" => Ok(Self::Buddy),
+            "homie" => Ok(Self::Homie),
+            "dude" => Ok(Self::Dude),
+            _ => Err(format!(
+                "unknown agent '{s}'; expected buddy, homie or dude"
+            )),
         }
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Mode { Solo, Council, Workshop }
+pub enum Mode {
+    Solo,
+    Council,
+    Workshop,
+}
 
 impl Mode {
     pub fn as_str(self) -> &'static str {
-        match self { Self::Solo => "solo", Self::Council => "council", Self::Workshop => "workshop" }
+        match self {
+            Self::Solo => "solo",
+            Self::Council => "council",
+            Self::Workshop => "workshop",
+        }
     }
 }
 
 impl fmt::Display for Mode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{}", self.as_str()) }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
 }
 
 impl FromStr for Mode {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_ascii_lowercase().as_str() {
-            "solo" => Ok(Self::Solo), "council" => Ok(Self::Council), "workshop" => Ok(Self::Workshop),
-            _ => Err(format!("unknown mode '{s}'; expected solo, council or workshop")),
+            "solo" => Ok(Self::Solo),
+            "council" => Ok(Self::Council),
+            "workshop" => Ok(Self::Workshop),
+            _ => Err(format!(
+                "unknown mode '{s}'; expected solo, council or workshop"
+            )),
         }
     }
 }
@@ -85,8 +113,12 @@ mod tests {
     use super::*;
     #[test]
     fn names_roundtrip() {
-        for agent in Agent::ALL { assert_eq!(agent.as_str().parse::<Agent>().unwrap(), agent); }
-        for mode in [Mode::Solo, Mode::Council, Mode::Workshop] { assert_eq!(mode.as_str().parse::<Mode>().unwrap(), mode); }
+        for agent in Agent::ALL {
+            assert_eq!(agent.as_str().parse::<Agent>().unwrap(), agent);
+        }
+        for mode in [Mode::Solo, Mode::Council, Mode::Workshop] {
+            assert_eq!(mode.as_str().parse::<Mode>().unwrap(), mode);
+        }
         assert!("other".parse::<Mode>().is_err());
     }
 

@@ -1,19 +1,36 @@
 //! PhiBuddy v0.2 CLI: local-only Ollama provider and three-agent collaboration.
 //! No tool execution, background agents, shell access, or automatic GitHub writes.
 
-use std::{env, io::{self, Write}, path::PathBuf, str::FromStr, time::Duration};
 use clap::{Parser, Subcommand};
 use phibuddy_core::{
-    agents::{Agent, Mode}, engine::{CouncilDepth, Engine}, store::Store, Message, ModelProvider, Result,
+    agents::{Agent, Mode},
+    engine::{CouncilDepth, Engine},
+    store::Store,
+    Message, ModelProvider, Result,
 };
 use reqwest::{blocking::Client, Url};
 use serde::Deserialize;
 use serde_json::json;
+use std::{
+    env,
+    io::{self, Write},
+    path::PathBuf,
+    str::FromStr,
+    time::Duration,
+};
 
 #[derive(Parser, Debug)]
-#[command(name = "phibuddy", version, about = "PhiBuddy: Buddy, Homie & Dude, local-first AI collaborators")]
+#[command(
+    name = "phibuddy",
+    version,
+    about = "PhiBuddy: Buddy, Homie & Dude, local-first AI collaborators"
+)]
 struct Cli {
-    #[arg(long, global = true, help = "SQLite database file (defaults to your local user-data directory)")]
+    #[arg(
+        long,
+        global = true,
+        help = "SQLite database file (defaults to your local user-data directory)"
+    )]
     db: Option<PathBuf>,
     #[arg(long, global = true, default_value = "qwen3:4b")]
     model: String,
@@ -31,11 +48,21 @@ enum Command {
         mode: String,
         #[arg(long, default_value = "buddy")]
         agent: String,
-        #[arg(long, help = "Resume existing session ID; stored mode and agent take precedence")]
+        #[arg(
+            long,
+            help = "Resume existing session ID; stored mode and agent take precedence"
+        )]
         session: Option<String>,
-        #[arg(long, default_value = "quick", help = "Council depth: quick (4 calls) or debate (7 calls)")]
+        #[arg(
+            long,
+            default_value = "quick",
+            help = "Council depth: quick (4 calls) or debate (7 calls)"
+        )]
         depth: String,
-        #[arg(long, help = "Print each actual contribution before the final synthesis")]
+        #[arg(
+            long,
+            help = "Print each actual contribution before the final synthesis"
+        )]
         show_contributions: bool,
     },
     /// Show locally saved sessions (no Ollama connection required).
@@ -59,22 +86,41 @@ struct Ollama {
 }
 
 #[derive(Deserialize)]
-struct OllamaReply { message: OllamaMessage }
+struct OllamaReply {
+    message: OllamaMessage,
+}
 #[derive(Deserialize)]
-struct OllamaMessage { content: String }
+struct OllamaMessage {
+    content: String,
+}
 
 impl Ollama {
     fn new(endpoint: &str, model: String) -> Result<Self> {
         let endpoint = Url::parse(endpoint)?;
         // Network access is deliberately limited to the same machine in v0.2.
-        if endpoint.scheme() != "http" || !matches!(endpoint.host_str(), Some("localhost" | "127.0.0.1" | "::1" | "[::1]"))
-            || !endpoint.username().is_empty() || endpoint.password().is_some()
-            || endpoint.path() != "/" || endpoint.query().is_some() || endpoint.fragment().is_some()
+        if endpoint.scheme() != "http"
+            || !matches!(
+                endpoint.host_str(),
+                Some("localhost" | "127.0.0.1" | "::1" | "[::1]")
+            )
+            || !endpoint.username().is_empty()
+            || endpoint.password().is_some()
+            || endpoint.path() != "/"
+            || endpoint.query().is_some()
+            || endpoint.fragment().is_some()
         {
-            return Err("v0.2 accepts only a local HTTP endpoint such as http://127.0.0.1:11434".into());
+            return Err(
+                "v0.2 accepts only a local HTTP endpoint such as http://127.0.0.1:11434".into(),
+            );
         }
-        let client = Client::builder().timeout(Duration::from_secs(180)).build()?;
-        Ok(Self { endpoint, model, client })
+        let client = Client::builder()
+            .timeout(Duration::from_secs(180))
+            .build()?;
+        Ok(Self {
+            endpoint,
+            model,
+            client,
+        })
     }
 
     fn check(&self) -> Result<()> {
@@ -90,12 +136,20 @@ impl Ollama {
 
 impl ModelProvider for Ollama {
     fn complete(&self, messages: &[Message]) -> Result<String> {
-        let input: Vec<_> = messages.iter().map(|m| json!({"role": m.role, "content": m.content})).collect();
-        let reply: OllamaReply = self.client
+        let input: Vec<_> = messages
+            .iter()
+            .map(|m| json!({"role": m.role, "content": m.content}))
+            .collect();
+        let reply: OllamaReply = self
+            .client
             .post(self.endpoint.join("api/chat")?)
             .json(&json!({"model": self.model, "messages": input, "stream": false}))
-            .send()?.error_for_status()?.json()?;
-        if reply.message.content.trim().is_empty() { return Err("Ollama generated an empty response".into()); }
+            .send()?
+            .error_for_status()?
+            .json()?;
+        if reply.message.content.trim().is_empty() {
+            return Err("Ollama generated an empty response".into());
+        }
         Ok(reply.message.content)
     }
 }
@@ -105,7 +159,11 @@ fn default_db() -> PathBuf {
         return PathBuf::from(dir).join("PhiBuddy").join("buddy.sqlite3");
     }
     if let Some(home) = env::var_os("HOME") {
-        return PathBuf::from(home).join(".local").join("share").join("phibuddy").join("buddy.sqlite3");
+        return PathBuf::from(home)
+            .join(".local")
+            .join("share")
+            .join("phibuddy")
+            .join("buddy.sqlite3");
     }
     PathBuf::from("phibuddy.sqlite3")
 }
@@ -127,7 +185,9 @@ fn main() -> Result<()> {
             }
         }
         Command::History { session } => {
-            if engine.store().get_session(&session)?.is_none() { return Err("session ID not found".into()); }
+            if engine.store().get_session(&session)?.is_none() {
+                return Err("session ID not found".into());
+            }
             for m in engine.store().messages(&session)? {
                 let actor = m.actor.unwrap_or_else(|| "user".to_owned());
                 println!("\n[{} / {}]\n{}", m.role, actor, m.content);
@@ -141,35 +201,67 @@ fn main() -> Result<()> {
                 if jsonl {
                     println!("{}", serde_json::to_string(&event)?);
                 } else {
-                    println!("\n[{} / {} / {} / {}]\n{}",
-                        event.sequence, event.turn_id, event.kind.as_str(),
-                        event.actor.as_deref().unwrap_or("user"), event.content);
+                    println!(
+                        "\n[{} / {} / {} / {}]\n{}",
+                        event.sequence,
+                        event.turn_id,
+                        event.kind.as_str(),
+                        event.actor.as_deref().unwrap_or("user"),
+                        event.content
+                    );
                 }
             }
         }
-        Command::Chat { mode, agent, session, depth, show_contributions } => {
+        Command::Chat {
+            mode,
+            agent,
+            session,
+            depth,
+            show_contributions,
+        } => {
             let depth = CouncilDepth::from_str(&depth)?;
             let session = match session {
-                Some(id) => engine.store().get_session(&id)?.ok_or("session ID not found")?,
-                None => engine.store().create_session(Mode::from_str(&mode)?, Agent::from_str(&agent)?)?,
+                Some(id) => engine
+                    .store()
+                    .get_session(&id)?
+                    .ok_or("session ID not found")?,
+                None => engine
+                    .store()
+                    .create_session(Mode::from_str(&mode)?, Agent::from_str(&agent)?)?,
             };
-            println!("PhiBuddy v{} | session={} | mode={} | agent={}", env!("CARGO_PKG_VERSION"), session.id, session.mode, session.agent);
+            println!(
+                "PhiBuddy v{} | session={} | mode={} | agent={}",
+                env!("CARGO_PKG_VERSION"),
+                session.id,
+                session.mode,
+                session.agent
+            );
             println!("Local inference only. Type :exit to quit, :help for commands.\n");
             loop {
                 print!("you> ");
                 io::stdout().flush()?;
                 let mut line = String::new();
-                if io::stdin().read_line(&mut line)? == 0 { break; }
+                if io::stdin().read_line(&mut line)? == 0 {
+                    break;
+                }
                 let line = line.trim();
                 match line {
                     ":exit" | ":quit" => break,
-                    ":help" => { println!(":exit | :quit | :help | :id | :paste (finish with :end)"); continue; }
-                    ":id" => { println!("{}", session.id); continue; }
+                    ":help" => {
+                        println!(":exit | :quit | :help | :id | :paste (finish with :end)");
+                        continue;
+                    }
+                    ":id" => {
+                        println!("{}", session.id);
+                        continue;
+                    }
                     "" => continue,
-                    _ => {},
+                    _ => {}
                 }
                 let request = if line == ":paste" {
-                    println!("Paste your multi-line request. Enter :end on its own line to submit.");
+                    println!(
+                        "Paste your multi-line request. Enter :end on its own line to submit."
+                    );
                     let mut whole = String::new();
                     loop {
                         let mut extra = String::new();
@@ -187,7 +279,9 @@ fn main() -> Result<()> {
                 } else {
                     line.to_owned()
                 };
-                if request.trim().is_empty() { continue; }
+                if request.trim().is_empty() {
+                    continue;
+                }
                 match engine.run_with_depth(&session, &request, depth) {
                     Ok(turn) => {
                         if show_contributions {
@@ -204,4 +298,3 @@ fn main() -> Result<()> {
     }
     Ok(())
 }
-

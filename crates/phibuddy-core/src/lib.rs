@@ -17,7 +17,10 @@ pub struct Message {
 
 impl Message {
     pub fn new(role: impl Into<String>, content: impl Into<String>) -> Self {
-        Self { role: role.into(), content: content.into() }
+        Self {
+            role: role.into(),
+            content: content.into(),
+        }
     }
 }
 
