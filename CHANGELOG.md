@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0-alpha.1 (draft source, not released)
+
+- Added a desktop Memory Workshop using the explicit v0.5 local SQLite memory ledger.
+- Introduced per-turn, user-selected source notes with maximum 5 notes / 6,000 context characters, no automatic carryover to later prompts.
+- Added ID-only `memory_attached` events and per-turn source inspection that reflects deletion of the active memory record.
+- Added deletion confirmation and regression tests for selected context, missing and duplicate IDs, next-turn non-reuse and deleted-note attribution.
+- Preserved all existing CLI and agent tool-denial boundaries; no cloud sync or silent auto-ingestion.
+
+
 ## 0.5.0-alpha.1 (draft source; not released)
 
 - Added Council Lab: isolated Solo/Quick/Debate comparisons using the same local Ollama model, with actual answers, timing, model-request counts and alternating order.

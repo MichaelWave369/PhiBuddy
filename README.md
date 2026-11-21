@@ -30,7 +30,7 @@ The desktop is restricted to local Ollama, and no agent can execute commands or 
 
 The desktop now supports real Ollama token streaming through Tauri channels, per-agent stage status, and a Cancel run button. Incomplete stages are traceable but **never** enter completed conversation history. See [streaming design and acceptance checklist](docs/STREAMING_V0.4.md).
 
-## Council Lab and user-managed memory (v0.5 draft)
+## Council Lab and user-managed memory (v0.5)
 
 The CLI now supports `eval` for side-by-side Solo-versus-Council experiments and `memory` for explicitly saved, source-labeled notes. These are *separate* features: benchmarks never add to your regular chat history, and memory notes are **not** automatically injected into agent prompts.
 
@@ -43,6 +43,12 @@ cargo run -p phibuddy -- memory search "claims"
 ```
 
 See [Council Lab design](docs/COUNCIL_LAB_V0.5.md) and [Memory ledger guide](docs/MEMORY_V0.5.md). The benchmark report contains full prompts and answers; handle it as private data. The memory database is unencrypted.
+
+## Desktop Memory Workshop (v0.6 alpha, draft)
+
+The desktop now offers an explicit **Memory** tab with save, literal search, per-turn note selection, deletion confirmation, and an attribution inspector. Selected notes are injected **only for that one message** and never harvested automatically. The event log retains selected note IDs, not copies of note bodies.
+
+See [Memory Workshop v0.6 design and acceptance](docs/MEMORY_WORKSHOP_V0.6.md). This is development source, not an installer or production memory system.
 
 ## Run the CLI on Windows 11
 
